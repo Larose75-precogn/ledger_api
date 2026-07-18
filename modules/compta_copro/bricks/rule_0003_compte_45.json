@@ -1,0 +1,21 @@
+{
+  "id": "R-PCG-COPRO-0003",
+  "type": "Rule",
+  "title": "Fonctionnement des comptes 45 - Copropriétaires",
+  "description": "Les comptes 45 (un sous-compte par copropriétaire) sont débités du montant des provisions appelées, par le crédit du compte 701 (provisions pour charges courantes). Ils sont crédités lors des règlements reçus des copropriétaires, par le débit d'un compte financier (classe 5).",
+  "creator": "Stéphane",
+  "created": "20260716000000",
+  "modified": "20260716000000",
+  "owner": "module:structory:compta_copro",
+  "language": "fr",
+  "version": "1",
+  "status": "Active",
+  "tags": ["pcg", "copropriete", "compte-45", "copropriétaires", "appels-de-fonds"],
+  "rights": "public - texte réglementaire",
+  "source": "Arrêté du 14 mars 2005, article 10",
+  "relations": ["R-PCG-COPRO-0001", "R-PCG-COPRO-0005"],
+  "ecritures_types": [
+    { "evenement": "Appel de provisions (trimestriel)", "debit": "45x (compte du copropriétaire)", "credit": "701" },
+    { "evenement": "Règlement reçu du copropriétaire", "debit": "512 (ou autre compte financier)", "credit": "45x" }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "R-PCG-COPRO-0001",
+  "type": "Rule",
+  "title": "Nomenclature du plan comptable des syndicats de copropriétaires",
+  "description": "Classes de comptes retenues par l'arrêté du 14 mars 2005 relatif aux comptes du syndicat des copropriétaires (article 7). Seules les classes et comptes retenus par ce texte sont utilisables par le syndic (article 8). Aucune compensation ne doit être effectuée entre comptes débiteurs et créditeurs (article 9).",
+  "creator": "Stéphane",
+  "created": "20260716000000",
+  "modified": "20260716000000",
+  "owner": "module:structory:compta_copro",
+  "language": "fr",
+  "version": "1",
+  "status": "Active",
+  "tags": ["pcg", "copropriete", "reglementaire", "referentiel"],
+  "rights": "public - texte réglementaire",
+  "source": "Arrêté du 14 mars 2005 relatif aux comptes du syndicat des copropriétaires - https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000000258165",
+  "relations": ["R-PCG-COPRO-0002", "R-PCG-COPRO-0003", "R-PCG-COPRO-0004", "R-PCG-COPRO-0005"],
+  "classes": [
+    { "classe": "1", "intitule": "Provisions, avances, subventions et emprunts", "comptes": ["102", "103", "12", "131"] },
+    { "classe": "4", "intitule": "Copropriétaires et tiers", "comptes": ["40", "42", "43", "44", "45", "46", "47", "48", "49"] },
+    { "classe": "5", "intitule": "Comptes financiers", "comptes": ["50", "51", "53"] },
+    { "classe": "6", "intitule": "Comptes de charges", "comptes": ["60", "61", "62", "63", "64", "65", "66", "67", "68"] },
+    { "classe": "7", "intitule": "Comptes de produits", "comptes": ["70", "71", "78"] }
+  ],
+  "note": "Nomenclature au niveau des classes/groupes uniquement (vérifié via Légifrance le 2026-07-16). La liste complète des ~200 comptes détaillés n'a pas été récupérée - à compléter si besoin."
+}

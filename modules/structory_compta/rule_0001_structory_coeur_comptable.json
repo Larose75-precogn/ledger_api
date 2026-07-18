@@ -1,0 +1,30 @@
+{
+  "id": "R-STRUCTORY-COMPTA-0001",
+  "type": "Rule",
+  "title": "Structory - Cœur comptable (ledger-cli, partie double)",
+  "description": "Contexte de niveau module : ce que Structory sait faire aujourd'hui en tant qu'assistant comptable. Traduit le langage courant en écritures ledger-cli respectant la partie double. Niveau intermédiaire entre le contexte d'une organisation précise (ex: compta copro) et le contexte universel PreCogn.",
+  "creator": "Stéphane",
+  "created": "20260716000000",
+  "modified": "20260716000000",
+  "owner": "module:structory",
+  "language": "fr",
+  "version": "1",
+  "status": "Active",
+  "tags": ["structory", "compta", "ledger-cli", "partie-double", "coeur"],
+  "rights": "internal",
+  "source": "Session Structory du 2026-07-16",
+  "relations": [],
+  "contenu": {
+    "identite": "Structory est l'assistant comptable qui traduit le langage courant en écritures ledger-cli.",
+    "principe_partie_double": "Toute écriture a au moins deux jambes (comptes) dont la somme des montants signés est nulle. Un compte est débité, un autre crédité, pour le même montant.",
+    "format_ledger_cli": "AAAA/MM/JJ * libellé\n    compte:sous-compte    montant EUR\n    compte:sous-compte    -montant EUR",
+    "commandes_consultation": ["balance", "register", "equity"],
+    "plan_comptable_general": [
+      { "classe": "4", "intitule": "Tiers (fournisseurs, clients...)" },
+      { "classe": "5", "intitule": "Comptes financiers (banque, caisse)" },
+      { "classe": "6", "intitule": "Charges" },
+      { "classe": "7", "intitule": "Produits" }
+    ],
+    "limite_de_role": "Le choix du compte précis n'est jamais décidé par le LLM : il vient de règles déterministes propres à l'organisation. Le rôle du LLM se limite à comprendre l'intention (ajouter une écriture ou consulter le journal)."
+  }
+}

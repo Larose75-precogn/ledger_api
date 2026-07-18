@@ -1,0 +1,36 @@
+{
+  "id": "R-STRUCTORY-COMPTA-0003",
+  "type": "Rule",
+  "title": "Structory - Plan comptable de référence (comptes numérotés)",
+  "description": "Table numéro de compte -> intitulé, pour reconnaître une référence EXPLICITE à un compte (ex: \"crédite le 512\") directement, sans passer par une déduction à partir de mots-clés. Complète rule_0001 (identité) et pcg_rules.py (classification par mots-clés, pour les cas où l'utilisateur ne cite pas de numéro) : ici, la source de vérité quand un numéro est cité.",
+  "creator": "Stéphane",
+  "created": "20260718000000",
+  "modified": "20260718000000",
+  "owner": "module:structory",
+  "language": "fr",
+  "version": "1",
+  "status": "Active",
+  "tags": ["structory", "plan-comptable", "comptes", "reference"],
+  "rights": "internal",
+  "source": "Reconstruit depuis les comptes déjà utilisés dans ~/ledger_api/pcg_rules.py (PCG_BASE_RULES, DEFAULT_COUNTERPART, fallbacks) — pas de nouveaux comptes inventés, uniquement ceux déjà en usage réel dans le classement par mots-clés.",
+  "relations": ["R-STRUCTORY-COMPTA-0001"],
+  "contenu": {
+    "comptes": {
+      "512000": "Banque",
+      "606100": "Achats non stockés",
+      "606400": "Fournitures administratives",
+      "606800": "Achats divers — à vérifier",
+      "613200": "Locations immobilières",
+      "615000": "Entretien et réparations",
+      "616000": "Primes d'assurance",
+      "622600": "Honoraires",
+      "625100": "Frais de déplacement",
+      "625700": "Réceptions",
+      "627000": "Services bancaires",
+      "641000": "Rémunérations du personnel",
+      "706000": "Prestations de services",
+      "708000": "Produits divers — à vérifier",
+      "740000": "Subventions et dons reçus"
+    }
+  }
+}

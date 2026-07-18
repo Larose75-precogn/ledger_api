@@ -1,0 +1,24 @@
+{
+  "id": "R-PCG-COPRO-0006",
+  "type": "Rule",
+  "title": "Comptes copropriété de référence (numéros explicites)",
+  "description": "Table numéro de compte -> intitulé pour la copropriété, en complément de rule_0001 (nomenclature par classes uniquement). Remplit le vide explicitement noté dans rule_0001 : \"La liste complète des ~200 comptes détaillés n'a pas été récupérée\" — pas exhaustif, mais couvre les comptes déjà cités nommément dans rule_0002 à rule_0005 (401, 45x, 701). Les comptes bancaires précis (classe 5) ne sont volontairement PAS ici : ils varient par copropriété (chaque immeuble a ses propres numéros, ex. compte courant + fonds travaux) — voir la brique au niveau organisation (orgs/<orgId>/bricks/) pour les vrais numéros d'une copro donnée.",
+  "creator": "Stéphane",
+  "created": "20260718000000",
+  "modified": "20260718000000",
+  "owner": "module:structory:compta_copro",
+  "language": "fr",
+  "version": "1",
+  "status": "Active",
+  "tags": ["pcg", "copropriete", "comptes", "reference"],
+  "rights": "internal",
+  "source": "Reconstruit depuis les comptes déjà cités dans rule_0001 à rule_0005 (compta_copro) — pas de nouveaux comptes inventés. Le compte \"512\" générique retiré le 2026-07-18 après vérification sur le vrai journal de la copro Poniatowski : elle utilise 5121 (compte courant) et 5011 (fonds travaux), pas 512 — la classe 5 est trop variable pour être fixée à ce niveau.",
+  "relations": ["R-PCG-COPRO-0001", "R-PCG-COPRO-0002", "R-PCG-COPRO-0003", "R-PCG-COPRO-0004", "R-PCG-COPRO-0005"],
+  "contenu": {
+    "comptes": {
+      "401": "Fournisseurs — factures parvenues (rule_0002)",
+      "451": "Copropriétaires — provisions et règlements, un sous-compte par copropriétaire ex. 451001 (rule_0003)",
+      "701": "Provisions pour charges courantes (rule_0003, rule_0005)"
+    }
+  }
+}
