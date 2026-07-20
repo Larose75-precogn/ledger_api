@@ -7,9 +7,27 @@ import re
 import tempfile
 from datetime import datetime
 
+import requests
+
 from pcg_rules import classify, build_ledger_entry
 
 app = Flask(__name__)
+
+ANALYZOR_URL = os.environ.get('ANALYZOR_URL', 'http://localhost:8000')
+
+
+def log_to_journal(org_id, actor, summary, details=None):
+    """Journal technique automatique (demandé par Stéphane 2026-07-18) : chaque action
+    réelle du cœur comptable se logue toute seule, sans intervention manuelle. Fail-open
+    strict — une panne du journal ne doit jamais faire échouer une vraie écriture comptable."""
+    try:
+        requests.post(
+            f'{ANALYZOR_URL}/api/journal/log',
+            json={'orgId': org_id, 'actor': actor, 'summary': summary, 'details': details or []},
+            timeout=3,
+        )
+    except requests.RequestException:
+        pass
 
 JOURNAL_PATH = '/home/ubuntu/ledger_api/journal.ledger'
 
@@ -26,7 +44,7 @@ if not os.path.exists(JOURNAL_PATH):
 ORGS_DIR = '/home/ubuntu/ledger_api/orgs'
 ORG_ID_RE = re.compile(r'^[a-zA-Z0-9_-]{1,100}$')
 
-QUERY_COMMANDS = {'balance', 'bal', 'register', 'reg', 'equity', 'print', 'accounts'}
+QUERY_COMMANDS = {'balance', 'bal', 'register', 'reg', 'equity', 'print', 'accounts', 'csv'}
 
 
 def org_journal_path(org_id, create=False):
@@ -149,6 +167,13 @@ def add_entry():
             capture_output=True, text=True, timeout=10
         )
 
+        log_to_journal(
+            org_id, 'ledger_api',
+            f'Écriture ajoutée : {montant}€ — {libelle}',
+            [f'Compte {compte_info["compte"]} ({compte_info["nom"]}), confiance {round(compte_info["confidence"] * 100)}%',
+             f'Sens : {sens}, date : {date}'],
+        )
+
         return jsonify({
             'success': True,
             'entry': entry_text,
@@ -245,6 +270,12 @@ def import_entries():
             capture_output=True, text=True, timeout=15
         )
 
+        log_to_journal(
+            org_id, 'ledger_api',
+            f'Import {mode} de {len(blocks)} écritures ({source or "source non précisée"})',
+            [f'Équilibre vérifié via ledger-cli : {"OK" if balance_check.returncode == 0 else "ERREUR - " + balance_check.stderr[:200]}']
+        )
+
         return jsonify({
             'success': True,
             'nImported': len(blocks),
@@ -331,6 +362,192 @@ def _read_json_bricks(directory):
     return contents
 
 
+_contrepartie_cache = {}
+
+
+def _load_contrepartie_rules():
+    """Lit les règles de contre-passation depuis les briques locales (copie des
+    Drive Rules — la source canonique reste rule_0007_contreparties_pcg_copro.json
+    dans Structory/compta copro/ sur Drive)."""
+    if _contrepartie_cache:
+        return _contrepartie_cache
+    for name in sorted(os.listdir(STRUCTORY_MODULE_DIR)):
+        if not name.endswith('.json'):
+            continue
+        with open(os.path.join(STRUCTORY_MODULE_DIR, name), encoding='utf-8') as f:
+            brick = json.load(f)
+        rules = brick.get('contenu', {}).get('contreparties')
+        if rules:
+            _contrepartie_cache.update(rules)
+    return _contrepartie_cache
+
+
+def _get_contrepartie(compte, sens):
+    """Retourne (compte_contrepartie, nom) en cherchant la règle la plus précise
+    d'abord (préfixe exact) puis par classe décroissante."""
+    rules = _load_contrepartie_rules()
+    for length in range(len(compte), 0, -1):
+        prefix = compte[:length]
+        rule = rules.get(prefix, {}).get(sens)
+        if rule:
+            return rule['compte'], rule['nom']
+    return 'Attente:non-ventile', 'À ventiler manuellement'
+
+
+@app.route('/api/ledger/journal', methods=['GET'])
+def journal_view():
+    """Vue HTML du journal comptable — toutes les écritures dans l'ordre chronologique."""
+    from flask import Response
+    org_id = request.args.get('orgId', '')
+    try:
+        path = org_journal_path(org_id, create=False)
+    except ValueError as e:
+        return Response(f'<p>Erreur : {e}</p>', mimetype='text/html'), 400
+    if not os.path.exists(path):
+        return Response('<p>Aucun journal pour cette organisation.</p>', mimetype='text/html'), 404
+
+    import csv as _csv, io as _io
+    result = subprocess.run(
+        ['ledger', '-f', path, 'csv'],
+        capture_output=True, text=True, timeout=15,
+    )
+
+    rows_html = ''
+    prev_lib = None
+    for row in _csv.reader(_io.StringIO(result.stdout)):
+        if len(row) < 6:
+            continue
+        date_raw, _, libelle, compte, _, montant_raw = row[0], row[1], row[2], row[3], row[4], row[5]
+        # Ignorer entrées de reset (comptes 998/999)
+        if compte in ('998', '999'):
+            continue
+        try:
+            amount = float(montant_raw)
+        except ValueError:
+            continue
+        # Format date YYYY/MM/DD → DD/MM/YYYY
+        try:
+            d = datetime.strptime(date_raw, '%Y/%m/%d')
+            date_fmt = d.strftime('%d/%m/%Y')
+        except ValueError:
+            date_fmt = date_raw
+        # Afficher la date et libellé seulement sur la 1ère jambe de chaque écriture
+        is_new = (libelle != prev_lib)
+        prev_lib = libelle
+        td = date_fmt if is_new else ''
+        tl = libelle if is_new else ''
+        # Compte : afficher le code seul (avant le premier :)
+        compte_clean = compte.split(':')[0]
+        debit  = f'{amount:.2f}'  if amount > 0 else ''
+        credit = f'{-amount:.2f}' if amount < 0 else ''
+        bg = '' if is_new else 'background:#f9f9f9'
+        rows_html += (f'<tr style="{bg}"><td>{td}</td><td>{tl}</td>'
+                      f'<td>{compte_clean}</td><td style="text-align:right;color:#1a6">{debit}</td>'
+                      f'<td style="text-align:right;color:#c33">{credit}</td></tr>\n')
+
+    html = f'''<!doctype html><html><head><meta charset="utf-8">
+<title>Journal — {org_id}</title>
+<style>body{{font-family:monospace;font-size:13px;margin:20px}}
+table{{border-collapse:collapse;width:100%}}
+th{{background:#2c5f8a;color:#fff;padding:6px 10px;text-align:left}}
+td{{padding:4px 10px;border-bottom:1px solid #eee}}
+tr:hover td{{background:#fffbe6}}</style></head><body>
+<h2>Journal comptable — copropriété</h2>
+<table><thead><tr><th>Date</th><th>Libellé</th><th>Compte</th>
+<th style="text-align:right">Débit</th><th style="text-align:right">Crédit</th></tr></thead>
+<tbody>{rows_html}</tbody></table></body></html>'''
+    return Response(html, mimetype='text/html')
+
+
+@app.route('/api/ledger/sheet-entry', methods=['POST'])
+def sheet_entry():
+    """Écriture depuis le sheet Google Sheets (Communicator).
+
+    Le compte est explicite (tab name), le libellé et le montant aussi.
+    La contrepartie est déterminée automatiquement via Rule PCG copropriété.
+
+    Body: {orgId, compte, libelle, montant_debit, montant_credit, date: "YYYY/MM/DD"}
+    Exactement l'un de montant_debit ou montant_credit doit être > 0.
+    """
+    try:
+        data = request.get_json() or {}
+        org_id = data.get('orgId', '')
+        compte = (data.get('compte') or '').strip().replace('.0', '')
+        libelle = (data.get('libelle') or '').strip()
+        date = (data.get('date') or '').replace('-', '/')
+        montant_debit = float(data.get('montant_debit') or 0)
+        montant_credit = float(data.get('montant_credit') or 0)
+
+        if not org_id:
+            return jsonify({'success': False, 'error': 'orgId manquant'}), 400
+        if not compte:
+            return jsonify({'success': False, 'error': 'compte manquant'}), 400
+        if not libelle:
+            return jsonify({'success': False, 'error': 'libelle manquant'}), 400
+        if not date:
+            return jsonify({'success': False, 'error': 'date manquante'}), 400
+        if montant_debit == 0 and montant_credit == 0:
+            return jsonify({'success': False, 'error': 'montant_debit ou montant_credit requis'}), 400
+        if montant_debit > 0 and montant_credit > 0:
+            return jsonify({'success': False, 'error': 'un seul montant à la fois (débit OU crédit)'}), 400
+
+        sens = 'debit' if montant_debit > 0 else 'credit'
+        montant = montant_debit if sens == 'debit' else montant_credit
+        cpt, nom = _get_contrepartie(compte, sens)
+
+        # Partie double : compte principal + contrepartie
+        if sens == 'debit':
+            legs = [
+                {'compte': compte, 'label': compte, 'amount': round(montant, 2)},
+                {'compte': cpt, 'label': nom, 'amount': round(-montant, 2)},
+            ]
+        else:
+            legs = [
+                {'compte': cpt, 'label': nom, 'amount': round(montant, 2)},
+                {'compte': compte, 'label': compte, 'amount': round(-montant, 2)},
+            ]
+
+        try:
+            path = org_journal_path(org_id, create=True)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+        if os.path.exists(path):
+            backup_path = path + f'.bak-{datetime.now().strftime("%Y%m%d%H%M%S")}'
+            with open(path) as f_in, open(backup_path, 'w') as f_out:
+                f_out.write(f_in.read())
+
+        leg_lines = []
+        for leg in legs:
+            account_part = f"{leg['compte']}:{leg['label']}" if leg['label'] != leg['compte'] else leg['compte']
+            leg_lines.append(f"    {account_part:<45}{leg['amount']:>10.2f} EUR")
+        block = f"{date} * {libelle}\n" + "\n".join(leg_lines)
+
+        with open(path, 'a') as f:
+            f.write('\n' + block + '\n')
+
+        balance_check = subprocess.run(
+            ['ledger', '-f', path, 'balance', '--no-total'],
+            capture_output=True, text=True, timeout=10,
+        )
+
+        log_to_journal(
+            org_id, 'sheet-communicator',
+            f'Écriture sheet : {montant:.2f}€ {"débit" if sens == "debit" else "crédit"} {compte} — {libelle}',
+            [f'Contrepartie : {cpt} ({nom})', f'Date : {date}'],
+        )
+
+        return jsonify({
+            'success': True,
+            'entry': block,
+            'contrepartie': {'compte': cpt, 'nom': nom},
+            'balanceOk': balance_check.returncode == 0,
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 def _org_module(org_id):
     """Lit quel module de compta est branché pour cette organisation
     (orgs/<org_id>/module.json), pour savoir quelles briques ajouter
@@ -361,6 +578,112 @@ def context_structory():
         'success': True,
         'context': '\n\n'.join(bricks)
     })
+
+
+@app.route('/api/ledger/fec', methods=['POST'])
+def export_fec():
+    """Export FEC (Fichier des Écritures Comptables) format DGFiP.
+
+    Body: {orgId, exercice: "2025"}
+    """
+    try:
+        data = request.get_json() or {}
+        org_id = data.get('orgId', '')
+        exercice = str(data.get('exercice', datetime.now().year))
+
+        try:
+            path = org_journal_path(org_id, create=False)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+        if not os.path.exists(path):
+            return jsonify({'success': False, 'error': 'Aucun journal pour cette organisation'}), 404
+
+        fec_content = _generate_fec(path, exercice)
+        log_to_journal(org_id, 'ledger_api', f'Export FEC exercice {exercice}')
+
+        return jsonify({'success': True, 'fec': fec_content, 'exercice': exercice})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _generate_fec(journal_path, exercice):
+    """Génère le contenu FEC (pipe-separated, format DGFiP) depuis un journal ledger-cli."""
+    year = exercice[:4]
+    header = '|'.join([
+        'JournalCode', 'JournalLib', 'EcritureNum', 'EcritureDate',
+        'CompteNum', 'CompteLib', 'CompAuxNum', 'CompAuxLib',
+        'PieceRef', 'PieceDate', 'EcritureLib',
+        'Debit', 'Credit', 'EcritureLet', 'DateLet', 'ValidDate',
+        'Montantdevise', 'Idevise'
+    ])
+    lines = [header]
+    ecriture_num = 1
+
+    with open(journal_path, encoding='utf-8') as f:
+        content = f.read()
+
+    # Découpe le fichier en blocs transaction (chaque bloc commence par une date)
+    blocks = re.split(r'(?=^\d{4}[/-]\d{2}[/-]\d{2})', content, flags=re.MULTILINE)
+
+    for block in blocks:
+        block = block.strip()
+        if not block or block.startswith(';'):
+            continue
+        first_line = block.split('\n')[0].strip()
+        m = re.match(r'^(\d{4}[/-]\d{2}[/-]\d{2})\s+(.+)$', first_line)
+        if not m:
+            continue
+        date_raw = m.group(1)
+        if not date_raw.startswith(year):
+            continue
+        payee = m.group(2).split(';')[0].strip()[:32]
+        date_fec = date_raw.replace('/', '').replace('-', '')
+
+        postings = []
+        for line in block.split('\n')[1:]:
+            s = line.strip()
+            if not s or s.startswith(';'):
+                continue
+            parts = re.split(r'\s{2,}', s)
+            if len(parts) >= 2:
+                account = parts[0].strip()
+                amt_str = re.sub(r'[A-Z€$£]+', '', parts[-1]).replace(',', '.').strip()
+                try:
+                    postings.append({'account': account, 'amount': float(amt_str)})
+                except ValueError:
+                    pass
+
+        for p in postings:
+            amount = p['amount']
+            debit  = f"{amount:.2f}".replace('.', ',') if amount > 0 else '0,00'
+            credit = f"{-amount:.2f}".replace('.', ',') if amount < 0 else '0,00'
+            compte = p['account'].split(':')[0]
+            jcode  = _fec_journal_code(compte)
+            lines.append('|'.join([
+                jcode, _fec_journal_lib(jcode),
+                str(ecriture_num).zfill(7),
+                date_fec,
+                compte, p['account'],
+                '', '',
+                '', date_fec,
+                payee,
+                debit, credit,
+                '', '', date_fec, '', ''
+            ]))
+        ecriture_num += 1
+
+    return '\r\n'.join(lines)
+
+
+def _fec_journal_code(compte):
+    c = compte.lstrip('0')[:1] if compte else ''
+    return {'5': 'BQ', '6': 'AC', '7': 'VT'}.get(c, 'OD')
+
+
+def _fec_journal_lib(code):
+    return {'BQ': 'Banque', 'AC': 'Achats', 'VT': 'Ventes', 'OD': 'Opérations diverses'}.get(code, 'Journal')
 
 
 @app.route('/api/ledger/status', methods=['GET'])
