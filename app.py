@@ -156,7 +156,10 @@ def add_entry():
             return jsonify({'success': False, 'error': str(e)}), 400
 
         compte_info = classify(libelle, sens, org_id)
-        entry_text = build_ledger_entry(date, libelle, montant, sens, compte_info)
+        sens_rule = 'debit' if sens == 'depense' else 'credit'
+        contrepartie_rules = _load_contrepartie_rules(org_id)
+        contrepartie = _get_contrepartie(compte_info['compte'], sens_rule, org_id) if contrepartie_rules else None
+        entry_text = build_ledger_entry(date, libelle, montant, sens, compte_info, contrepartie=contrepartie)
 
         with open(path, 'a') as f:
             f.write('\n' + entry_text + '\n')
@@ -300,11 +303,17 @@ def ledger_exists():
     return jsonify({'success': True, 'exists': os.path.exists(path)})
 
 
+DATE_RE = re.compile(r'^\d{4}[/-]\d{2}[/-]\d{2}$')
+
+
 @app.route('/api/ledger/query', methods=['POST'])
 def query():
     """Exécute une commande ledger-cli en lecture seule pour une organisation.
 
-    Body: {orgId, command: "balance"|"register"|"equity"|"print"|"accounts", filters?: [str]}
+    Body: {orgId, command: "balance"|"register"|"equity"|"print"|"accounts", filters?: [str],
+           endDate?: "YYYY/MM/DD" (solde à une date donnée, pour calculer une variation —
+           passé en `--end` de façon contrôlée, jamais via `filters` qui interdit tout ce qui
+           commence par "-" pour empêcher l'injection de flags arbitraires dans le subprocess)}
     """
     try:
         data = request.get_json() or {}
@@ -312,6 +321,7 @@ def query():
         org_id = data.get('orgId', '')
         command = data.get('command', 'balance')
         filters = data.get('filters') or []
+        end_date = data.get('endDate')
 
         if command not in QUERY_COMMANDS:
             return jsonify({'success': False, 'error': f'Commande non autorisée: {command}'}), 400
@@ -320,6 +330,19 @@ def query():
             (not isinstance(f, str)) or f.startswith('-') for f in filters
         ):
             return jsonify({'success': False, 'error': 'filters invalides'}), 400
+
+        begin_date = data.get('beginDate')
+        date_args = []
+        if begin_date is not None:
+            begin_date = str(begin_date).replace('-', '/')
+            if not DATE_RE.match(begin_date):
+                return jsonify({'success': False, 'error': 'beginDate invalide (attendu YYYY/MM/DD)'}), 400
+            date_args += ['--begin', begin_date]
+        if end_date is not None:
+            end_date = str(end_date).replace('-', '/')
+            if not DATE_RE.match(end_date):
+                return jsonify({'success': False, 'error': 'endDate invalide (attendu YYYY/MM/DD)'}), 400
+            date_args += ['--end', end_date]
 
         try:
             path = org_journal_path(org_id, create=False)
@@ -330,7 +353,7 @@ def query():
             return jsonify({'success': False, 'error': 'Aucun journal pour cette organisation'}), 404
 
         result = subprocess.run(
-            ['ledger', '-f', path, command, *filters],
+            ['ledger', '-f', path, command, *filters, *date_args],
             capture_output=True, text=True, timeout=15
         )
 
@@ -362,30 +385,44 @@ def _read_json_bricks(directory):
     return contents
 
 
-_contrepartie_cache = {}
+_contrepartie_cache = {}  # keyed by org_id or '_generic'
 
 
-def _load_contrepartie_rules():
-    """Lit les règles de contre-passation depuis les briques locales (copie des
-    Drive Rules — la source canonique reste rule_0007_contreparties_pcg_copro.json
-    dans Structory/compta copro/ sur Drive)."""
-    if _contrepartie_cache:
-        return _contrepartie_cache
-    for name in sorted(os.listdir(STRUCTORY_MODULE_DIR)):
-        if not name.endswith('.json'):
-            continue
-        with open(os.path.join(STRUCTORY_MODULE_DIR, name), encoding='utf-8') as f:
-            brick = json.load(f)
-        rules = brick.get('contenu', {}).get('contreparties')
-        if rules:
-            _contrepartie_cache.update(rules)
-    return _contrepartie_cache
+def _load_contrepartie_rules(org_id=None):
+    """Règles de contre-passation en cascade : Structory → module org → org.
+    Même logique que _resolve_account_references() dans pcg_rules.py."""
+    cache_key = org_id or '_generic'
+    if cache_key in _contrepartie_cache:
+        return _contrepartie_cache[cache_key]
+
+    rules = {}
+
+    def _load_dir(directory):
+        if not os.path.isdir(directory):
+            return
+        for name in sorted(os.listdir(directory)):
+            if not name.endswith('.json'):
+                continue
+            with open(os.path.join(directory, name), encoding='utf-8') as f:
+                brick = json.load(f)
+            rules.update(brick.get('contenu', {}).get('contreparties', {}))
+
+    _load_dir(STRUCTORY_MODULE_DIR)
+
+    if org_id:
+        module = _org_module(org_id)
+        if module:
+            _load_dir(os.path.join(MODULES_DIR, module, 'bricks'))
+        _load_dir(os.path.join(ORGS_DIR, org_id, 'bricks'))
+
+    _contrepartie_cache[cache_key] = rules
+    return rules
 
 
-def _get_contrepartie(compte, sens):
+def _get_contrepartie(compte, sens, org_id=None):
     """Retourne (compte_contrepartie, nom) en cherchant la règle la plus précise
-    d'abord (préfixe exact) puis par classe décroissante."""
-    rules = _load_contrepartie_rules()
+    d'abord (préfixe exact) puis par classe décroissante, dans la cascade de l'org."""
+    rules = _load_contrepartie_rules(org_id)
     for length in range(len(compte), 0, -1):
         prefix = compte[:length]
         rule = rules.get(prefix, {}).get(sens)
@@ -493,7 +530,7 @@ def sheet_entry():
 
         sens = 'debit' if montant_debit > 0 else 'credit'
         montant = montant_debit if sens == 'debit' else montant_credit
-        cpt, nom = _get_contrepartie(compte, sens)
+        cpt, nom = _get_contrepartie(compte, sens, org_id)
 
         # Partie double : compte principal + contrepartie
         if sens == 'debit':
@@ -548,6 +585,308 @@ def sheet_entry():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _get_account_balance(path, compte, devise='EUR', end_date=None):
+    """Solde d'un compte exact (pas ses sous-comptes) dans le journal d'une org, via le vrai
+    moteur ledger-cli. Retourne 0.0 si le compte n'existe pas encore (compte jamais mouvementé)
+    — comportement normal au tout premier balance-point. `end_date` optionnel (`YYYY/MM/DD`) :
+    solde à une date passée plutôt qu'aujourd'hui, utilisé pour les variations (email quotidien
+    "plus forte variation sur 30 jours", 2026-07-26)."""
+    cmd = ['ledger', '-f', path, 'balance', f'^{re.escape(compte)}$', '--no-total', '--flat']
+    if end_date:
+        cmd += ['--end', end_date]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    total = 0.0
+    for line in result.stdout.splitlines():
+        m = re.match(r'^\s*(-?[\d.,]+)\s+([A-Z]{3})\b', line)
+        if m and m.group(2) == devise:
+            total += float(m.group(1).replace(',', ''))
+    return total
+
+
+def _get_account_last_date(path, compte):
+    """Date (YYYY/MM/DD) de la dernière écriture touchant ce compte exact, ou None si le compte
+    n'a jamais été mouvementé — utilisé pour l'indicateur "dernière synchronisation" de la vue
+    patrimoine (Navigator, 2026-07-26), pas de notion de date stockée séparément : le journal
+    ledger-cli est la seule source de vérité, comme pour le solde."""
+    result = subprocess.run(
+        ['ledger', '-f', path, 'register', f'^{re.escape(compte)}$', '--no-color', '--date-format', '%Y/%m/%d'],
+        capture_output=True, text=True, timeout=10,
+    )
+    last_date = None
+    for line in result.stdout.splitlines():
+        m = re.match(r'^(\d{4}/\d{2}/\d{2})\b', line.strip())
+        if m:
+            last_date = m.group(1)
+    return last_date
+
+
+@app.route('/api/ledger/comptes-solde', methods=['POST'])
+def comptes_solde():
+    """Solde + date de dernière écriture pour une liste de comptes en un seul appel — vue
+    patrimoine agrégée (Navigator, 2026-07-26) : évite un aller-retour ledger-cli par compte
+    depuis l'appelant (18 comptes = 18 process `ledger` sinon). Ne résout jamais le connector ni
+    le mode de synchro (rôle d'Analyzor/Executor, pas de ledger_api) — uniquement des faits
+    comptables.
+
+    Body: {orgId, comptes: [{etablissement, nature, titulaire?, devise?}], endDate?}
+    `endDate` (YYYY/MM/DD) optionnel : solde de chaque compte à cette date passée plutôt
+    qu'aujourd'hui (variation sur N jours, email quotidien 2026-07-26) — `lastDate` (dernière
+    écriture) reste toujours calculé sans égard à `endDate`, ça reste un fait global du compte.
+    """
+    try:
+        data = request.get_json() or {}
+        org_id = data.get('orgId', '')
+        comptes = data.get('comptes') or []
+        end_date = (data.get('endDate') or '').replace('-', '/') or None
+        if not org_id or not comptes:
+            return jsonify({'success': False, 'error': 'orgId et comptes requis'}), 400
+
+        try:
+            path = org_journal_path(org_id, create=False)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+        results = []
+        for c in comptes:
+            etablissement = (c.get('etablissement') or '').strip()
+            nature = (c.get('nature') or '').strip()
+            titulaire = (c.get('titulaire') or '').strip() or None
+            produit = (c.get('produit') or '').strip() or None
+            devise = (c.get('devise') or 'EUR').strip().upper()
+            if not etablissement or not nature:
+                results.append({'etablissement': etablissement, 'nature': nature, 'titulaire': titulaire, 'error': 'etablissement/nature manquant'})
+                continue
+            compte = _resolve_compte_patrimoine(etablissement, nature, titulaire, produit)
+            if os.path.exists(path):
+                solde = _get_account_balance(path, compte, devise, end_date=end_date)
+                last_date = _get_account_last_date(path, compte)
+            else:
+                solde = 0.0
+                last_date = None
+            results.append({
+                'etablissement': etablissement, 'nature': nature, 'titulaire': titulaire, 'produit': produit,
+                'compte': compte, 'solde': solde, 'devise': devise, 'lastDate': last_date,
+            })
+
+        return jsonify({'success': True, 'comptes': results})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _prefix_totals_by_currency(path, prefix, end_date=None):
+    """Somme, par devise, tous les comptes sous un préfixe (ex. `Actif:Banque`) — jamais de
+    conversion entre devises (§0 ARCHITECTURE.md Suivre Mes Comptes : la conversion est un
+    problème d'affichage Sheet/GOOGLEFINANCE, jamais calculé côté backend). `end_date`
+    optionnel (`YYYY/MM/DD`) pour un solde à une date passée (variation vs veille)."""
+    cmd = ['ledger', '-f', path, 'balance', f'^{re.escape(prefix)}', '--no-total', '--flat']
+    if end_date:
+        cmd += ['--end', end_date]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    totals = {}
+    for line in result.stdout.splitlines():
+        m = re.match(r'^\s*(-?[\d.,]+)\s+([A-Z]{3})\b', line)
+        if m:
+            totals[m.group(2)] = totals.get(m.group(2), 0.0) + float(m.group(1).replace(',', ''))
+    return totals
+
+
+@app.route('/api/ledger/patrimoine', methods=['POST'])
+def patrimoine_totals():
+    """Solde total par devise pour un préfixe de compte (ex. `Actif:Banque`, patrimoine
+    Suivre Mes Comptes) — optionnellement à une date passée, pour permettre de calculer une
+    variation (ex. rapport quotidien §9 ARCHITECTURE.md).
+
+    Body: {orgId, prefix?: "Actif:Banque", endDate?: "YYYY/MM/DD"}
+    """
+    try:
+        data = request.get_json() or {}
+        org_id = data.get('orgId', '')
+        prefix = data.get('prefix') or 'Actif:Banque'
+        end_date = data.get('endDate')
+
+        if end_date is not None:
+            end_date = str(end_date).replace('-', '/')
+            if not DATE_RE.match(end_date):
+                return jsonify({'success': False, 'error': 'endDate invalide (attendu YYYY/MM/DD)'}), 400
+
+        try:
+            path = org_journal_path(org_id, create=False)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+        if not os.path.exists(path):
+            return jsonify({'success': True, 'totals': {}})
+
+        totals = _prefix_totals_by_currency(path, prefix, end_date)
+        return jsonify({'success': True, 'totals': totals})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _resolve_compte_patrimoine(etablissement, nature, titulaire=None, produit=None):
+    """Établissement + nature (+ titulaire) (+ produit) -> compte patrimoine ledger-cli (Suivre
+    Mes Comptes ARCHITECTURE.md §4bis). Dérivation déterministe
+    (Actif:Banque:<Établissement>:<Titulaire>:<Nature>[:<Produit>]) — source unique, réutilisée
+    par tous les appelants (Executor, Communicator) pour ne jamais dupliquer cette résolution
+    ailleurs.
+
+    `titulaire` fait partie de la clé depuis le 2026-07-25 : sans lui, deux comptes du même
+    établissement et de la même nature (ex. "Ferme Verte 323" et "Ferme Verte Photovoltaïque",
+    tous deux Qonto/courant) se résolvaient au MÊME compte ledger et s'écrasaient l'un l'autre.
+
+    `produit` ajouté le 2026-07-26 : même bug de collision, cette fois avec établissement+nature
+    ET titulaire identiques — "Crédit Mutuel SPL Livret Bleu" et "Crédit Mutuel SPL LDD" sont
+    tous deux Crédit Mutuel/épargne/EURL SPL (même titulaire, même nature, mais 2 produits
+    d'épargne différents chez la même entité). Trouvé en usage réel (saisie manuelle d'un solde
+    sur "SPL LDD" qui aurait écrasé "SPL Livret Bleu"). Optionnel et rétrocompatible : absent
+    pour tous les comptes qui n'ont jamais eu ce problème (Mercury, Qonto, BCP, les comptes
+    courants Crédit Mutuel...), donc leur chemin ledger ne change pas."""
+    slug = ''.join(w.capitalize() for w in etablissement.replace('-', ' ').split())
+    parts = [f'Actif:Banque:{slug}']
+    if titulaire:
+        parts.append(''.join(w.capitalize() for w in titulaire.replace('-', ' ').split()))
+    parts.append(nature)
+    if produit:
+        parts.append(''.join(w.capitalize() for w in produit.replace('-', ' ').split()))
+    return ':'.join(parts)
+
+
+@app.route('/api/ledger/time-points', methods=['GET'])
+def time_points():
+    """Liste les dates distinctes où AU MOINS UN solde a été réellement constaté pour cette org
+    (brique "Time", Suivre Mes Comptes, 2026-08-03 — retour de Stéphane : "il me manque la
+    brique Time... naviguer dans le time en fonction des précédentes positions existantes").
+    Une "position Time" = un vrai constat de solde (saisie manuelle OU synchro connector),
+    jamais un point recalculé/interpolé — dérivé directement du grand livre réel
+    (`Attente:ajustement-solde`, la contrepartie systématique de tout `balance-point`, voir
+    cette fonction plus bas), jamais une notion stockée séparément.
+    Query: ?orgId=..."""
+    try:
+        org_id = request.args.get('orgId', '')
+        if not org_id:
+            return jsonify({'success': False, 'error': 'orgId manquant'}), 400
+        path = org_journal_path(org_id, create=False)
+        if not os.path.exists(path):
+            return jsonify({'success': True, 'dates': []})
+
+        result = subprocess.run(
+            ['ledger', '-f', path, 'register', 'Attente:ajustement-solde', '--no-color', '--date-format', '%Y/%m/%d'],
+            capture_output=True, text=True, timeout=10,
+        )
+        dates = set()
+        for line in result.stdout.splitlines():
+            m = re.match(r'^(\d{4}/\d{2}/\d{2})\b', line.strip())
+            if m:
+                dates.add(m.group(1))
+
+        return jsonify({'success': True, 'dates': sorted(dates, reverse=True)})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ledger/balance-point', methods=['POST'])
+def balance_point():
+    """Constate le solde d'un compte patrimoine à une date donnée (Suivre Mes Comptes,
+    ARCHITECTURE.md §4bis) — pas une écriture classée : compare le solde observé au solde
+    actuellement enregistré dans le journal, et ne poste que l'écart, en contrepartie du
+    compte technique `Attente:ajustement-solde`.
+
+    Body: {orgId, solde, devise?: "EUR", date?: "YYYY/MM/DD",
+           etablissement + nature + titulaire? (résolution automatique du compte, cas normal —
+           titulaire nécessaire dès qu'une org a plusieurs comptes au même établissement/nature)
+           OU compte (override explicite, si l'appelant a déjà résolu le compte lui-même)}
+    """
+    try:
+        data = request.get_json() or {}
+        org_id = data.get('orgId', '')
+        compte = (data.get('compte') or '').strip()
+        etablissement = (data.get('etablissement') or '').strip()
+        nature = (data.get('nature') or '').strip()
+        titulaire = (data.get('titulaire') or '').strip()
+        produit = (data.get('produit') or '').strip()
+        solde = data.get('solde')
+        devise = (data.get('devise') or 'EUR').strip().upper()
+        date = (data.get('date') or datetime.now().strftime('%Y/%m/%d')).replace('-', '/')
+
+        if not org_id:
+            return jsonify({'success': False, 'error': 'orgId manquant'}), 400
+        if not compte:
+            if not etablissement or not nature:
+                return jsonify({'success': False, 'error': 'compte manquant (ou etablissement + nature)'}), 400
+            compte = _resolve_compte_patrimoine(etablissement, nature, titulaire, produit)
+        if solde is None:
+            return jsonify({'success': False, 'error': 'solde manquant'}), 400
+        try:
+            solde = float(str(solde).replace(',', '.'))
+        except ValueError:
+            return jsonify({'success': False, 'error': 'solde invalide'}), 400
+
+        try:
+            path = org_journal_path(org_id, create=True)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+        solde_actuel = _get_account_balance(path, compte, devise)
+        ecart = round(solde - solde_actuel, 2)
+
+        if abs(ecart) < 0.01:
+            # `soldeNouveau` toujours présent, même quand rien n'est posté (2026-07-26, bug réel
+            # trouvé en usage) : les appelants (panneau latéral Navigator, Executor) lisent
+            # `soldeNouveau` pour rafraîchir l'affichage après une saisie — son absence ici
+            # faisait retomber le solde affiché à 0 (`undefined` côté JS) alors que le vrai
+            # solde du compte était correct dans le journal.
+            return jsonify({
+                'success': True,
+                'compte': compte,
+                'ecart': 0.0,
+                'soldeActuel': solde_actuel,
+                'soldeNouveau': solde_actuel,
+                'entry': None,
+                'message': 'Aucun écart, rien à poster',
+            })
+
+        if os.path.exists(path):
+            backup_path = path + f'.bak-{datetime.now().strftime("%Y%m%d%H%M%S")}'
+            with open(path) as f_in, open(backup_path, 'w') as f_out:
+                f_out.write(f_in.read())
+
+        leg_lines = [
+            f"    {compte:<45}{ecart:>10.2f} {devise}",
+            f"    {'Attente:ajustement-solde':<45}{-ecart:>10.2f} {devise}",
+        ]
+        block = f"{date} * Solde constaté ({solde:.2f} {devise})\n" + "\n".join(leg_lines)
+
+        with open(path, 'a') as f:
+            f.write('\n' + block + '\n')
+
+        balance_check = subprocess.run(
+            ['ledger', '-f', path, 'balance', '--no-total'],
+            capture_output=True, text=True, timeout=10,
+        )
+
+        log_to_journal(
+            org_id, 'executor',
+            f'Point de solde : {compte} = {solde:.2f} {devise} (écart {ecart:+.2f} {devise})',
+            [f'Solde précédent enregistré : {solde_actuel:.2f} {devise}', f'Date : {date}'],
+        )
+
+        return jsonify({
+            'success': True,
+            'compte': compte,
+            'ecart': ecart,
+            'soldeActuel': solde_actuel,
+            'soldeNouveau': solde,
+            'entry': block,
+            'balanceOk': balance_check.returncode == 0,
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 def _org_module(org_id):
     """Lit quel module de compta est branché pour cette organisation
     (orgs/<org_id>/module.json), pour savoir quelles briques ajouter
@@ -557,6 +896,17 @@ def _org_module(org_id):
         return None
     with open(path, encoding='utf-8') as f:
         return json.load(f).get('module')
+
+
+@app.route('/api/org/<org_id>/module', methods=['GET'])
+def org_module(org_id):
+    """Module produit branché pour cette org (orgs/<org_id>/module.json) — ex.
+    "suivre_mes_comptes" vs "compta_copro". Nécessaire pour la résolution de connector
+    (analyzor::resolve_connectors), qui a besoin du module PRODUIT, pas de la hiérarchie
+    d'organisation (parent_org_id de subscriptions_api — deux notions de "module" distinctes,
+    confondues jusqu'ici côté Navigator : bug réel trouvé le 2026-07-27, aucun connector ne se
+    résolvait jamais en usage réel à cause de ça)."""
+    return jsonify({'success': True, 'module': _org_module(org_id)})
 
 
 @app.route('/api/context/structory', methods=['GET'])
@@ -578,6 +928,40 @@ def context_structory():
         'success': True,
         'context': '\n\n'.join(bricks)
     })
+
+
+@app.route('/api/ledger/provision', methods=['POST'])
+def provision_org():
+    """Provisionne une nouvelle organisation : crée le dossier orgs/<id>/, le journal vide,
+    et le module.json avec le module de compta société par défaut.
+
+    Body: {orgId, name?, module?}  — module par défaut: "compta_societe"
+    Idempotent : si l'org existe déjà, retourne success sans écraser.
+    """
+    try:
+        data = request.get_json() or {}
+        org_id = (data.get('orgId') or '').strip()
+        name = (data.get('name') or org_id).strip()
+        module = (data.get('module') or 'compta_societe').strip()
+
+        try:
+            path = org_journal_path(org_id, create=True)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+
+        org_dir = os.path.dirname(path)
+        module_path = os.path.join(org_dir, 'module.json')
+        if not os.path.exists(module_path):
+            with open(module_path, 'w') as f:
+                import json as _json
+                _json.dump({'module': module, 'name': name}, f)
+
+        log_to_journal(org_id, 'ledger_api', f'Organisation provisionnée : {name}',
+                       [f'Module : {module}'])
+        return jsonify({'success': True, 'orgId': org_id, 'module': module})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/ledger/fec', methods=['POST'])
