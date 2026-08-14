@@ -47,19 +47,67 @@ ORG_ID_RE = re.compile(r'^[a-zA-Z0-9_-]{1,100}$')
 QUERY_COMMANDS = {'balance', 'bal', 'register', 'reg', 'equity', 'print', 'accounts', 'csv'}
 
 
+class NeedsBootstrapError(Exception):
+    """Le Drive de l'org existe mais n'a pas encore de fichier journal.ledger — le compte de
+    service ne peut jamais le CRÉER lui-même (storageQuotaExceeded). L'appelant (Apps Script,
+    identité réelle) doit créer le placeholder puis réessayer — voir
+    ConnectorIdentity.js::identityEnsureJournalPlaceholder et _callLedger (retry générique)."""
+    def __init__(self, folder_id):
+        self.folder_id = folder_id
+        super().__init__('needs_bootstrap')
+
+
 def org_journal_path(org_id, create=False):
+    """Chemin LOCAL, TEMPORAIRE, du journal — jamais la source de vérité (2026-08-10, retour
+    de Stéphane : "le journal doit être dans le storage de l'orga, pas sur le VPS"). Si l'org a
+    un dossier Drive, son contenu est resynchronisé ICI, à chaque appel, depuis le fichier
+    journal.ledger de CE Drive — jamais une copie locale qu'on se contente de réutiliser. Repli
+    sur le fichier local pur pour les orgs sans dossier Drive (compat, ex. démos internes)."""
     if not ORG_ID_RE.match(org_id or ''):
         raise ValueError('orgId invalide')
 
     org_dir = os.path.join(ORGS_DIR, org_id)
     path = os.path.join(org_dir, 'journal.ledger')
 
+    try:
+        resp = requests.get(f'{ANALYZOR_URL}/api/ownstorage/journal', params={'orgId': org_id}, timeout=10)
+        data = resp.json()
+    except requests.RequestException:
+        data = {'success': False, 'errorCode': 'analyzor_unreachable'}
+
+    if data.get('success'):
+        os.makedirs(org_dir, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(data.get('content') or '')
+        return path
+
+    if data.get('errorCode') == 'needs_bootstrap':
+        raise NeedsBootstrapError(data.get('folderId'))
+
+    # unknown_org (pas de dossier Drive) ou analyzor injoignable : repli local pur, comportement
+    # historique inchangé — ne bloque jamais une org qui n'a jamais eu de présence Drive.
     if create and not os.path.exists(path):
         os.makedirs(org_dir, exist_ok=True)
         with open(path, 'w') as f:
             f.write('; Journal créé automatiquement pour org=' + org_id + '\n')
 
     return path
+
+
+def push_journal_to_drive(org_id, path):
+    """Pousse le contenu local vers le Drive de l'org après une écriture — no-op silencieux si
+    l'org n'a pas de dossier Drive (repli local pur) ou si le placeholder n'existe pas encore
+    (l'appelant Apps Script est responsable du bootstrap avant d'écrire, voir _callLedger)."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            content = f.read()
+        requests.post(
+            f'{ANALYZOR_URL}/api/ownstorage/journal',
+            json={'orgId': org_id, 'content': content},
+            timeout=10,
+        )
+    except (requests.RequestException, OSError):
+        pass
 
 
 @app.route('/api/ledger/convert', methods=['POST'])
@@ -152,6 +200,8 @@ def add_entry():
 
         try:
             path = org_journal_path(org_id, create=True)
+        except NeedsBootstrapError as e:
+            return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -163,6 +213,7 @@ def add_entry():
 
         with open(path, 'a') as f:
             f.write('\n' + entry_text + '\n')
+        push_journal_to_drive(org_id, path)
 
         # Vérification d'équilibre via le vrai moteur ledger-cli
         balance_check = subprocess.run(
@@ -255,6 +306,8 @@ def import_entries():
 
         try:
             path = org_journal_path(org_id, create=True)
+        except NeedsBootstrapError as e:
+            return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -267,6 +320,7 @@ def import_entries():
         write_mode = 'w' if mode == 'replace' else 'a'
         with open(path, write_mode) as f:
             f.write('\n' + header + '\n\n'.join(blocks) + '\n')
+        push_journal_to_drive(org_id, path)
 
         balance_check = subprocess.run(
             ['ledger', '-f', path, 'balance', '--no-total'],
@@ -297,6 +351,8 @@ def ledger_exists():
     org_id = request.args.get('orgId', '')
     try:
         path = org_journal_path(org_id, create=False)
+    except NeedsBootstrapError as e:
+        return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -346,6 +402,8 @@ def query():
 
         try:
             path = org_journal_path(org_id, create=False)
+        except NeedsBootstrapError as e:
+            return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -405,7 +463,9 @@ def _load_contrepartie_rules(org_id=None):
                 continue
             with open(os.path.join(directory, name), encoding='utf-8') as f:
                 brick = json.load(f)
-            rules.update(brick.get('contenu', {}).get('contreparties', {}))
+            c = brick.get('contenu', {})
+            if isinstance(c, dict):
+                rules.update(c.get('contreparties', {}))
 
     _load_dir(STRUCTORY_MODULE_DIR)
 
@@ -438,6 +498,8 @@ def journal_view():
     org_id = request.args.get('orgId', '')
     try:
         path = org_journal_path(org_id, create=False)
+    except NeedsBootstrapError:
+        return Response('<p>Journal pas encore initialisé pour cette organisation.</p>', mimetype='text/html'), 404
     except ValueError as e:
         return Response(f'<p>Erreur : {e}</p>', mimetype='text/html'), 400
     if not os.path.exists(path):
@@ -449,31 +511,40 @@ def journal_view():
         capture_output=True, text=True, timeout=15,
     )
 
-    rows_html = ''
-    prev_lib = None
+    # Le fichier .ledger n'est pas forcément trié globalement par date (des blocs de
+    # transactions ajoutés à des moments différents peuvent se chevaucher) et `ledger csv`
+    # réimprime dans l'ordre du fichier, pas un ordre chronologique global — tri explicite
+    # nécessaire (bug réel trouvé le 2026-08-11, retour de Stéphane : "en désordre
+    # chronologique"). Rangée par rangée d'abord, regroupées par écriture après le tri.
+    parsed_rows = []
     for row in _csv.reader(_io.StringIO(result.stdout)):
         if len(row) < 6:
             continue
         date_raw, _, libelle, compte, _, montant_raw = row[0], row[1], row[2], row[3], row[4], row[5]
-        # Ignorer entrées de reset (comptes 998/999)
         if compte in ('998', '999'):
             continue
         try:
             amount = float(montant_raw)
         except ValueError:
             continue
-        # Format date YYYY/MM/DD → DD/MM/YYYY
+        parsed_rows.append((date_raw, libelle, compte, amount))
+    parsed_rows.sort(key=lambda r: r[0])
+
+    rows_html = ''
+    prev_lib = None
+    for date_raw, libelle, compte, amount in parsed_rows:
         try:
             d = datetime.strptime(date_raw, '%Y/%m/%d')
             date_fmt = d.strftime('%d/%m/%Y')
         except ValueError:
             date_fmt = date_raw
-        # Afficher la date et libellé seulement sur la 1ère jambe de chaque écriture
+        # Afficher la date et libellé seulement sur la 1ère jambe de chaque écriture (fonctionne
+        # même après tri : les jambes d'une même écriture partagent le même libellé et restent
+        # groupées consécutivement grâce au tri stable par date).
         is_new = (libelle != prev_lib)
         prev_lib = libelle
         td = date_fmt if is_new else ''
         tl = libelle if is_new else ''
-        # Compte : afficher le code seul (avant le premier :)
         compte_clean = compte.split(':')[0]
         debit  = f'{amount:.2f}'  if amount > 0 else ''
         credit = f'{-amount:.2f}' if amount < 0 else ''
@@ -489,7 +560,7 @@ table{{border-collapse:collapse;width:100%}}
 th{{background:#2c5f8a;color:#fff;padding:6px 10px;text-align:left}}
 td{{padding:4px 10px;border-bottom:1px solid #eee}}
 tr:hover td{{background:#fffbe6}}</style></head><body>
-<h2>Journal comptable — copropriété</h2>
+<h2>Journal comptable — {org_id}</h2>
 <table><thead><tr><th>Date</th><th>Libellé</th><th>Compte</th>
 <th style="text-align:right">Débit</th><th style="text-align:right">Crédit</th></tr></thead>
 <tbody>{rows_html}</tbody></table></body></html>'''
@@ -546,6 +617,8 @@ def sheet_entry():
 
         try:
             path = org_journal_path(org_id, create=True)
+        except NeedsBootstrapError as e:
+            return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -562,6 +635,7 @@ def sheet_entry():
 
         with open(path, 'a') as f:
             f.write('\n' + block + '\n')
+        push_journal_to_drive(org_id, path)
 
         balance_check = subprocess.run(
             ['ledger', '-f', path, 'balance', '--no-total'],
@@ -643,6 +717,8 @@ def comptes_solde():
 
         try:
             path = org_journal_path(org_id, create=False)
+        except NeedsBootstrapError as e:
+            return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -712,6 +788,8 @@ def patrimoine_totals():
 
         try:
             path = org_journal_path(org_id, create=False)
+        except NeedsBootstrapError as e:
+            return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -783,6 +861,8 @@ def time_points():
 
         return jsonify({'success': True, 'dates': sorted(dates, reverse=True)})
 
+    except NeedsBootstrapError as e:
+        return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -826,6 +906,8 @@ def balance_point():
 
         try:
             path = org_journal_path(org_id, create=True)
+        except NeedsBootstrapError as e:
+            return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -861,6 +943,7 @@ def balance_point():
 
         with open(path, 'a') as f:
             f.write('\n' + block + '\n')
+        push_journal_to_drive(org_id, path)
 
         balance_check = subprocess.run(
             ['ledger', '-f', path, 'balance', '--no-total'],
@@ -887,15 +970,46 @@ def balance_point():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _write_module_cache(org_id, module):
+    """Cache local dérivé du module (jamais la source de vérité — celle-ci est
+    `contenu.module` sur la brique Organisation, dans le Drive de l'org). Permet une lecture
+    à froid même si Analyzor est momentanément injoignable."""
+    if not module:
+        return
+    try:
+        org_dir = os.path.join(ORGS_DIR, org_id)
+        os.makedirs(org_dir, exist_ok=True)
+        with open(os.path.join(org_dir, 'module.json'), 'w', encoding='utf-8') as f:
+            json.dump({'module': module}, f)
+    except OSError:
+        pass
+
+
 def _org_module(org_id):
-    """Lit quel module de compta est branché pour cette organisation
-    (orgs/<org_id>/module.json), pour savoir quelles briques ajouter
-    en plus du niveau Structory générique."""
+    """Module de compta branché pour cette org. Source unique de vérité : `contenu.module` sur
+    la brique Organisation (Drive de l'org, via Analyzor) — décision Stéphane 2026-08-13, le
+    module vit en BYOS, pas sur le VPS. `orgs/<org_id>/module.json` n'est plus qu'un cache local
+    dérivé, utilisé seulement si Analyzor est injoignable (lecture à froid). Ainsi une org ne
+    peut plus avoir un module "fantôme" présent sur le VPS mais absent de son propre storage."""
+    module = None
+    try:
+        resp = requests.get(f'{ANALYZOR_URL}/api/org/{org_id}', timeout=5)
+        if resp.ok:
+            org = (resp.json() or {}).get('org') or {}
+            module = (org.get('contenu') or {}).get('module')
+    except requests.RequestException:
+        module = None
+
+    if module:
+        _write_module_cache(org_id, module)  # rafraîchit le cache dérivé
+        return module
+
+    # Repli cache local (Analyzor injoignable, ou org pas encore migrée en BYOS)
     path = os.path.join(ORGS_DIR, org_id, 'module.json')
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding='utf-8') as f:
-        return json.load(f).get('module')
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as f:
+            return json.load(f).get('module')
+    return None
 
 
 @app.route('/api/org/<org_id>/module', methods=['GET'])
@@ -942,10 +1056,16 @@ def provision_org():
         data = request.get_json() or {}
         org_id = (data.get('orgId') or '').strip()
         name = (data.get('name') or org_id).strip()
-        module = (data.get('module') or 'compta_societe').strip()
+        # 'compta_societe' n'a jamais existé comme dossier réel (seul 'structory_compta' existe,
+        # voir modules/) — ancien défaut resté incohérent, causait un module.json pointant vers
+        # un dossier absent, donc _get_bricks_raw()/embedding retrieval toujours vide en silence
+        # pour toute org provisionnée sans module explicite (bug trouvé 2026-08-08).
+        module = (data.get('module') or 'structory_compta').strip()
 
         try:
             path = org_journal_path(org_id, create=True)
+        except NeedsBootstrapError as e:
+            return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -977,6 +1097,8 @@ def export_fec():
 
         try:
             path = org_journal_path(org_id, create=False)
+        except NeedsBootstrapError as e:
+            return jsonify({'success': False, 'errorCode': 'needs_bootstrap', 'folderId': e.folder_id}), 409
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
 

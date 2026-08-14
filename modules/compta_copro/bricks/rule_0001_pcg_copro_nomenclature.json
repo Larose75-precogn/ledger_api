@@ -1,25 +1,1350 @@
 {
   "id": "R-PCG-COPRO-0001",
   "type": "Rule",
-  "title": "Nomenclature du plan comptable des syndicats de copropriétaires",
-  "description": "Classes de comptes retenues par l'arrêté du 14 mars 2005 relatif aux comptes du syndicat des copropriétaires (article 7). Seules les classes et comptes retenus par ce texte sont utilisables par le syndic (article 8). Aucune compensation ne doit être effectuée entre comptes débiteurs et créditeurs (article 9).",
-  "creator": "Stéphane",
-  "created": "20260716000000",
-  "modified": "20260716000000",
+  "title": "Plan comptable des syndicats de copropriétaires",
+  "description": "Nomenclature comptable applicable à tout syndicat de copropriétaires, issue de l'arrêté du 14 mars 2005. Chaque compte est décrit avec son usage et ses écritures types selon le sens du mouvement (débit ou crédit), afin de permettre la suggestion de contrepartie sans table codée en dur. Les numéros de sous-comptes spécifiques (451:NOM, 401:NOM, comptes bancaires) sont définis dans le BYOS de l'organisation.",
+  "source": "Arrêté du 14 mars 2005 relatif aux comptes du syndicat des copropriétaires — https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000000258165",
   "owner": "module:structory:compta_copro",
   "language": "fr",
-  "version": "1",
+  "version": "3",
   "status": "Active",
-  "tags": ["pcg", "copropriete", "reglementaire", "referentiel"],
-  "rights": "public - texte réglementaire",
-  "source": "Arrêté du 14 mars 2005 relatif aux comptes du syndicat des copropriétaires - https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000000258165",
-  "relations": ["R-PCG-COPRO-0002", "R-PCG-COPRO-0003", "R-PCG-COPRO-0004", "R-PCG-COPRO-0005"],
-  "classes": [
-    { "classe": "1", "intitule": "Provisions, avances, subventions et emprunts", "comptes": ["102", "103", "12", "131"] },
-    { "classe": "4", "intitule": "Copropriétaires et tiers", "comptes": ["40", "42", "43", "44", "45", "46", "47", "48", "49"] },
-    { "classe": "5", "intitule": "Comptes financiers", "comptes": ["50", "51", "53"] },
-    { "classe": "6", "intitule": "Comptes de charges", "comptes": ["60", "61", "62", "63", "64", "65", "66", "67", "68"] },
-    { "classe": "7", "intitule": "Comptes de produits", "comptes": ["70", "71", "78"] }
+  "tags": [
+    "pcg",
+    "copropriete",
+    "reglementaire",
+    "nomenclature"
   ],
-  "note": "Nomenclature au niveau des classes/groupes uniquement (vérifié via Légifrance le 2026-07-16). La liste complète des ~200 comptes détaillés n'a pas été récupérée - à compléter si besoin."
+  "principe": "Aucune compensation entre comptes débiteurs et créditeurs. Classe 1 = fonds propres. Classes 4-5 = tiers et banque. Classes 6-7 = charges et produits. La contrepartie naturelle dépend du sens : un même compte débité ou crédité n'a pas la même contrepartie.",
+  "comptes": [
+    {
+      "classe": "1",
+      "intitule": "Fonds propres, provisions et financements long terme",
+      "comptes": [
+        {
+          "compte": "102",
+          "intitule": "Provisions pour charges",
+          "usage": "Fonds votés en AG pour dépenses futures identifiées (gros travaux). Distinct de 701 (charges courantes annuelles).",
+          "ecritures": [
+            {
+              "evenement": "Appel de fonds pour travaux futurs",
+              "debit": "451:NOM",
+              "credit": "102"
+            },
+            {
+              "evenement": "Utilisation du fonds pour travaux",
+              "debit": "102",
+              "credit": "5xx (banque travaux)"
+            }
+          ]
+        },
+        {
+          "compte": "103",
+          "intitule": "Avances — fonds de roulement",
+          "usage": "Avances permanentes des copropriétaires pour la trésorerie courante. Restituables à la vente du lot.",
+          "ecritures": [
+            {
+              "evenement": "Versement de l'avance par le copropriétaire",
+              "debit": "5xx (banque)",
+              "credit": "103"
+            },
+            {
+              "evenement": "Restitution au copropriétaire (vente)",
+              "debit": "103",
+              "credit": "5xx (banque)"
+            }
+          ]
+        },
+        {
+          "compte": "104",
+          "intitule": "Travaux votés non encore réalisés",
+          "usage": "Engagement pluriannuel voté en AG, dépense reportée sur exercice futur.",
+          "ecritures": [
+            {
+              "evenement": "Engagement de travaux votés en AG",
+              "debit": "451:NOM",
+              "credit": "104"
+            },
+            {
+              "evenement": "Réalisation des travaux (bascule en charge)",
+              "debit": "104",
+              "credit": "671"
+            }
+          ]
+        },
+        {
+          "compte": "105",
+          "intitule": "Fonds de travaux ALUR (compte séparé obligatoire)",
+          "usage": "Fonds obligatoire depuis loi ALUR 2014, min 5% du budget annuel. Non restituable à la vente. Compte bancaire dédié.",
+          "ecritures": [
+            {
+              "evenement": "Alimentation du fonds (appel de fonds ALUR)",
+              "debit": "451:NOM",
+              "credit": "105"
+            },
+            {
+              "evenement": "Utilisation pour travaux",
+              "debit": "105",
+              "credit": "5xx (banque fonds travaux)"
+            }
+          ]
+        },
+        {
+          "compte": "12",
+          "intitule": "Résultat de l'exercice",
+          "usage": "Solde charges/produits en fin d'exercice. Objectif = zéro. Excédent remboursé ou reporté, déficit appelé.",
+          "ecritures": [
+            {
+              "evenement": "Clôture avec excédent (produits > charges)",
+              "debit": "7xx (solde produits)",
+              "credit": "12"
+            },
+            {
+              "evenement": "Clôture avec déficit (charges > produits)",
+              "debit": "12",
+              "credit": "6xx (solde charges)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "classe": "4",
+      "intitule": "Copropriétaires et tiers",
+      "comptes": [
+        {
+          "compte": "401",
+          "intitule": "Fournisseurs — factures à payer",
+          "usage": "Dette envers un prestataire. Sous-compte par fournisseur : 401:NOM_FOURNISSEUR.",
+          "ecritures": [
+            {
+              "evenement": "Facture reçue d'un fournisseur",
+              "debit": "6xx (charge concernée)",
+              "credit": "401:NOM_FOURNISSEUR"
+            },
+            {
+              "evenement": "Paiement de la facture",
+              "debit": "401:NOM_FOURNISSEUR",
+              "credit": "5xx (banque)"
+            }
+          ]
+        },
+        {
+          "compte": "451",
+          "intitule": "Copropriétaires — provisions appelées et versements",
+          "usage": "Compte principal des copropriétaires. Sous-compte obligatoire : 451:NOM. Solde débiteur = doit payer. Solde créditeur = trop-versé.",
+          "ecritures": [
+            {
+              "evenement": "Émission d'un appel de fonds courant",
+              "debit": "451:NOM",
+              "credit": "701"
+            },
+            {
+              "evenement": "Paiement reçu du copropriétaire",
+              "debit": "5xx (banque)",
+              "credit": "451:NOM"
+            }
+          ]
+        },
+        {
+          "compte": "452",
+          "intitule": "Copropriétaires — avances hors appels ordinaires",
+          "usage": "Avances ponctuelles hors budget (travaux urgents non encore votés). Distinct de 451.",
+          "ecritures": [
+            {
+              "evenement": "Demande d'avance au copropriétaire",
+              "debit": "452:NOM",
+              "credit": "702"
+            },
+            {
+              "evenement": "Encaissement de l'avance",
+              "debit": "5xx (banque)",
+              "credit": "452:NOM"
+            }
+          ]
+        },
+        {
+          "compte": "462",
+          "intitule": "Créances diverses",
+          "usage": "Créances sur tiers hors fournisseurs et copropriétaires : remboursement assurance, subvention, refacturation.",
+          "ecritures": [
+            {
+              "evenement": "Créance constatée (remboursement assurance à recevoir)",
+              "debit": "462",
+              "credit": "708 ou 772"
+            },
+            {
+              "evenement": "Encaissement de la créance",
+              "debit": "5xx (banque)",
+              "credit": "462"
+            }
+          ]
+        },
+        {
+          "compte": "470",
+          "intitule": "Comptes d'attente — à affecter",
+          "usage": "Mouvement non encore identifié. Doit être soldé avant clôture. Un 470 ouvert en fin d'exercice est une erreur.",
+          "ecritures": [
+            {
+              "evenement": "Entrée banque non identifiée",
+              "debit": "5xx (banque)",
+              "credit": "470"
+            },
+            {
+              "evenement": "Sortie banque non identifiée",
+              "debit": "470",
+              "credit": "5xx (banque)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "classe": "5",
+      "intitule": "Comptes financiers — banque et caisse",
+      "comptes": [
+        {
+          "compte": "512",
+          "intitule": "Banque — compte courant opérations courantes",
+          "usage": "Compte principal du syndicat. Numéro exact (5121, 5122...) défini dans le BYOS de l'organisation.",
+          "ecritures": [
+            {
+              "evenement": "Encaissement (paiement reçu d'un copropriétaire)",
+              "debit": "5xx (banque)",
+              "credit": "451:NOM"
+            },
+            {
+              "evenement": "Paiement d'une facture fournisseur",
+              "debit": "401:NOM_FOURNISSEUR",
+              "credit": "5xx (banque)"
+            },
+            {
+              "evenement": "Virement vers banque fonds travaux",
+              "debit": "5xx (banque fonds travaux)",
+              "credit": "5xx (banque courant)"
+            }
+          ]
+        },
+        {
+          "compte": "501",
+          "intitule": "Banque — fonds de travaux (compte séparé obligatoire loi ALUR)",
+          "usage": "Compte bancaire dédié exclusivement au fonds de travaux. Alimenté par virements depuis 512. Numéro exact défini dans le BYOS.",
+          "ecritures": [
+            {
+              "evenement": "Alimentation depuis la banque courante",
+              "debit": "5xx (banque fonds travaux)",
+              "credit": "5xx (banque courant)"
+            },
+            {
+              "evenement": "Paiement de travaux depuis ce compte",
+              "debit": "671 ou 615",
+              "credit": "5xx (banque fonds travaux)"
+            }
+          ]
+        },
+        {
+          "compte": "530",
+          "intitule": "Caisse",
+          "usage": "Espèces. Rare en pratique. Justifié par un livre de caisse.",
+          "ecritures": [
+            {
+              "evenement": "Retrait espèces depuis la banque",
+              "debit": "530",
+              "credit": "5xx (banque)"
+            },
+            {
+              "evenement": "Dépense en espèces",
+              "debit": "6xx (charge)",
+              "credit": "530"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "classe": "6",
+      "intitule": "Charges — dépenses du syndicat",
+      "note": "Tous les comptes de charge sont débités lors de la constatation de la charge (contrepartie 401 si facture fournisseur, ou 5xx si paiement direct). Ils sont crédités uniquement en cas d'avoir ou d'annulation (contrepartie 401).",
+      "comptes": [
+        {
+          "compte": "601",
+          "intitule": "Eau",
+          "usage": "Consommation d'eau des parties communes.",
+          "ecritures": [
+            {
+              "evenement": "Facture eau reçue",
+              "debit": "601",
+              "credit": "401:NOM_FOURNISSEUR"
+            },
+            {
+              "evenement": "Avoir ou annulation",
+              "debit": "401:NOM_FOURNISSEUR",
+              "credit": "601"
+            }
+          ]
+        },
+        {
+          "compte": "602",
+          "intitule": "Électricité",
+          "usage": "Consommation électrique des parties communes.",
+          "ecritures": [
+            {
+              "evenement": "Facture électricité reçue",
+              "debit": "602",
+              "credit": "401:NOM_FOURNISSEUR"
+            },
+            {
+              "evenement": "Avoir ou annulation",
+              "debit": "401:NOM_FOURNISSEUR",
+              "credit": "602"
+            }
+          ]
+        },
+        {
+          "compte": "606",
+          "intitule": "Fournitures et consommables",
+          "usage": "Petites fournitures entretien courant : produits ménagers, ampoules, visserie.",
+          "ecritures": [
+            {
+              "evenement": "Achat fournitures (souvent paiement direct)",
+              "debit": "606",
+              "credit": "5xx (banque) ou 401"
+            }
+          ]
+        },
+        {
+          "compte": "611",
+          "intitule": "Sous-traitance — ménage, gardiennage, espaces verts",
+          "usage": "Prestataires externes récurrents sous contrat.",
+          "ecritures": [
+            {
+              "evenement": "Facture prestataire reçue",
+              "debit": "611",
+              "credit": "401:NOM_FOURNISSEUR"
+            }
+          ]
+        },
+        {
+          "compte": "613",
+          "intitule": "Locations",
+          "usage": "Loyers versés par le syndicat (local technique, benne, parking).",
+          "ecritures": [
+            {
+              "evenement": "Loyer dû",
+              "debit": "613",
+              "credit": "401:NOM_FOURNISSEUR"
+            }
+          ]
+        },
+        {
+          "compte": "614",
+          "intitule": "Contrats d'entretien",
+          "usage": "Maintenance récurrente sous contrat : ascenseur, chaudière, portes automatiques, extincteurs.",
+          "ecritures": [
+            {
+              "evenement": "Facture contrat entretien reçue",
+              "debit": "614",
+              "credit": "401:NOM_FOURNISSEUR"
+            }
+          ]
+        },
+        {
+          "compte": "615",
+          "intitule": "Entretien et réparations ponctuelles",
+          "usage": "Réparations non contractuelles des parties communes : plomberie, serrurerie, peinture. Distinct de 614 (contrats) et 671 (gros travaux).",
+          "ecritures": [
+            {
+              "evenement": "Facture réparation reçue",
+              "debit": "615",
+              "credit": "401:NOM_FOURNISSEUR"
+            }
+          ]
+        },
+        {
+          "compte": "616",
+          "intitule": "Primes d'assurances",
+          "usage": "Assurance multirisque immeuble obligatoire.",
+          "ecritures": [
+            {
+              "evenement": "Prime d'assurance due",
+              "debit": "616",
+              "credit": "401:NOM_ASSUREUR"
+            }
+          ]
+        },
+        {
+          "compte": "622",
+          "intitule": "Honoraires",
+          "usage": "Syndic professionnel, avocat, expert, géomètre.",
+          "ecritures": [
+            {
+              "evenement": "Facture honoraires reçue",
+              "debit": "622",
+              "credit": "401:NOM_FOURNISSEUR"
+            }
+          ]
+        },
+        {
+          "compte": "626",
+          "intitule": "Frais postaux et télécommunications",
+          "usage": "Affranchissement AG, lettres recommandées, téléphonie loge.",
+          "ecritures": [
+            {
+              "evenement": "Frais postaux",
+              "debit": "626",
+              "credit": "5xx (banque) ou 401"
+            }
+          ]
+        },
+        {
+          "compte": "627",
+          "intitule": "Frais bancaires",
+          "usage": "Frais de tenue de compte, virements, taxes bancaires prélevées directement sur le compte.",
+          "ecritures": [
+            {
+              "evenement": "Prélèvement frais bancaires",
+              "debit": "627",
+              "credit": "5xx (banque)"
+            }
+          ]
+        },
+        {
+          "compte": "635",
+          "intitule": "Impôts et taxes",
+          "usage": "Taxe foncière parties communes, taxe ordures ménagères, autres taxes locales.",
+          "ecritures": [
+            {
+              "evenement": "Avis d'imposition reçu",
+              "debit": "635",
+              "credit": "401 ou 5xx"
+            }
+          ]
+        },
+        {
+          "compte": "641",
+          "intitule": "Salaires du personnel",
+          "usage": "Rémunérations brutes du gardien ou employé d'immeuble.",
+          "ecritures": [
+            {
+              "evenement": "Paie du mois",
+              "debit": "641",
+              "credit": "421 (salaires à payer)"
+            },
+            {
+              "evenement": "Virement salaire",
+              "debit": "421",
+              "credit": "5xx (banque)"
+            }
+          ]
+        },
+        {
+          "compte": "645",
+          "intitule": "Charges sociales patronales",
+          "usage": "Cotisations patronales URSSAF, retraite, prévoyance sur salaires (641).",
+          "ecritures": [
+            {
+              "evenement": "Charges sociales dues",
+              "debit": "645",
+              "credit": "431 (organismes sociaux)"
+            },
+            {
+              "evenement": "Paiement URSSAF",
+              "debit": "431",
+              "credit": "5xx (banque)"
+            }
+          ]
+        },
+        {
+          "compte": "671",
+          "intitule": "Charges exceptionnelles — gros travaux",
+          "usage": "Travaux hors budget votés en AG extraordinaire, sinistres non couverts. Financé par appel exceptionnel (451) ou fonds travaux (105).",
+          "ecritures": [
+            {
+              "evenement": "Facture gros travaux reçue",
+              "debit": "671",
+              "credit": "401:NOM_ENTREPRISE"
+            },
+            {
+              "evenement": "Paiement depuis fonds travaux",
+              "debit": "401:NOM_ENTREPRISE",
+              "credit": "5xx (banque fonds travaux)"
+            }
+          ]
+        },
+        {
+          "compte": "672",
+          "intitule": "Charges sur exercices antérieurs",
+          "usage": "Factures d'un exercice clôturé comptabilisées tardivement sur l'exercice courant.",
+          "ecritures": [
+            {
+              "evenement": "Facture tardive exercice N-1",
+              "debit": "672",
+              "credit": "401:NOM_FOURNISSEUR"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "classe": "7",
+      "intitule": "Produits — recettes du syndicat",
+      "note": "Tous les comptes de produits sont crédités lors de l'émission (contrepartie 451 pour les appels, 5xx pour les encaissements directs). Ils sont débités uniquement en cas d'annulation ou régularisation.",
+      "comptes": [
+        {
+          "compte": "701",
+          "intitule": "Provisions pour charges courantes — appels de fonds",
+          "usage": "Recette principale : appels de fonds trimestriels pour le budget courant. En fin d'exercice doit s'équilibrer avec les charges 6xx.",
+          "ecritures": [
+            {
+              "evenement": "Émission appel de fonds courant",
+              "debit": "451:NOM",
+              "credit": "701"
+            },
+            {
+              "evenement": "Annulation ou régularisation",
+              "debit": "701",
+              "credit": "451:NOM"
+            }
+          ]
+        },
+        {
+          "compte": "702",
+          "intitule": "Provisions pour travaux — appels de fonds travaux",
+          "usage": "Appels de fonds pour travaux identifiés votés en AG. Distinct de 701.",
+          "ecritures": [
+            {
+              "evenement": "Émission appel de fonds travaux",
+              "debit": "451:NOM",
+              "credit": "702"
+            },
+            {
+              "evenement": "Annulation",
+              "debit": "702",
+              "credit": "451:NOM"
+            }
+          ]
+        },
+        {
+          "compte": "703",
+          "intitule": "Avances des copropriétaires",
+          "usage": "Contrepartie produit des avances reçues (fonds de roulement 103).",
+          "ecritures": [
+            {
+              "evenement": "Avance reçue",
+              "debit": "5xx (banque)",
+              "credit": "703"
+            }
+          ]
+        },
+        {
+          "compte": "708",
+          "intitule": "Produits annexes",
+          "usage": "Recettes accessoires : location salle, antenne relais, refacturation, intérêts fonds travaux.",
+          "ecritures": [
+            {
+              "evenement": "Produit annexe encaissé",
+              "debit": "5xx (banque)",
+              "credit": "708"
+            },
+            {
+              "evenement": "Produit annexe facturé (à encaisser)",
+              "debit": "462",
+              "credit": "708"
+            }
+          ]
+        },
+        {
+          "compte": "772",
+          "intitule": "Produits sur exercices antérieurs",
+          "usage": "Recettes d'un exercice clôturé encaissées sur l'exercice courant : régularisation trop-appelé, remboursement assurance sinistre passé.",
+          "ecritures": [
+            {
+              "evenement": "Remboursement assurance exercice antérieur",
+              "debit": "5xx (banque)",
+              "credit": "772"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "regles_generales": [
+    "451:NOM obligatoire — ne jamais utiliser 451 seul sans sous-compte.",
+    "401:NOM recommandé — un sous-compte par fournisseur.",
+    "Les numéros de comptes bancaires (5121, 5011...) sont dans le BYOS de l'organisation, jamais dans ce module.",
+    "470 doit être soldé avant la clôture — c'est un compte provisoire.",
+    "Charges 6xx et produits 7xx doivent s'équilibrer sur l'exercice (objectif budget à zéro).",
+    "614 = contrats récurrents, 615 = réparations ponctuelles, 671 = gros travaux exceptionnels.",
+    "La contrepartie naturelle dépend du sens : 451 débité → 701, 451 crédité → 5xx (banque)."
+  ],
+  "_embedding": [
+    0.0403494,
+    0.061933734,
+    -0.16407885,
+    -0.090115815,
+    0.028298123,
+    -0.061439704,
+    -0.012982513,
+    -0.0014631917,
+    -0.052121818,
+    -0.022880254,
+    -0.024180721,
+    0.0092145335,
+    0.04171014,
+    -0.0431559,
+    0.029369064,
+    -0.036951657,
+    -0.039064206,
+    0.013854428,
+    -0.034322456,
+    0.06144478,
+    -0.010891925,
+    -0.020226343,
+    -0.027105398,
+    -0.01938552,
+    0.09566185,
+    0.018394588,
+    0.008329398,
+    -0.025579955,
+    -0.07596991,
+    -0.06648502,
+    0.010170368,
+    0.020479504,
+    0.03938955,
+    -0.020208914,
+    -0.035483673,
+    -0.08803046,
+    0.11521809,
+    0.023877483,
+    -0.019748366,
+    -0.007548578,
+    0.04711908,
+    0.047616567,
+    0.020162085,
+    -0.018422175,
+    0.04528756,
+    0.023535058,
+    0.050948095,
+    -0.024908137,
+    0.041513342,
+    -0.044994287,
+    0.0041843206,
+    0.012815146,
+    -0.0052761626,
+    0.018700229,
+    0.0084689595,
+    0.031817395,
+    -0.03427617,
+    0.0284998,
+    0.060599104,
+    -0.07456091,
+    0.030495565,
+    0.062779084,
+    -0.011356159,
+    0.062271453,
+    0.05219864,
+    0.019205771,
+    0.0006619932,
+    0.052609775,
+    0.03168891,
+    -0.010801497,
+    0.034451798,
+    0.028250953,
+    0.043245614,
+    0.019794665,
+    -0.02501435,
+    -0.015649071,
+    -0.03350977,
+    0.014775762,
+    -0.001924257,
+    0.031008782,
+    -0.008283699,
+    -5.4083088e-05,
+    0.06454084,
+    0.016047392,
+    0.029146465,
+    -0.00013385984,
+    -0.0043196203,
+    -0.056935582,
+    -0.017410405,
+    0.08311921,
+    -0.022063328,
+    0.010954773,
+    0.026936809,
+    0.03157732,
+    -0.043298617,
+    0.027858434,
+    0.03193502,
+    0.0029686135,
+    -0.04975807,
+    -0.025836924,
+    -0.028526256,
+    -0.021742223,
+    0.04659727,
+    0.011005871,
+    -0.023067307,
+    0.08806404,
+    -0.03709557,
+    0.01681477,
+    -0.009688546,
+    -0.073197626,
+    -0.030793346,
+    0.034871753,
+    -0.026289694,
+    -0.029013056,
+    0.009016838,
+    0.023835603,
+    0.06466746,
+    -0.04390107,
+    0.034179885,
+    0.07129013,
+    -0.030354712,
+    -0.03403405,
+    0.059229538,
+    0.047477517,
+    -0.019823851,
+    -0.014311474,
+    -0.011812284,
+    0.0107962405,
+    0.090239204,
+    -0.0632028,
+    0.005004922,
+    0.01869789,
+    -0.018974904,
+    -0.037622634,
+    -0.0311374,
+    0.027903398,
+    0.010338966,
+    -0.040026326,
+    -0.00851782,
+    0.030463351,
+    0.014874032,
+    -0.04571965,
+    0.027096214,
+    -0.021488389,
+    0.0021649837,
+    -0.086356975,
+    0.062310576,
+    -0.02516288,
+    -0.02387829,
+    0.032516837,
+    -0.00793796,
+    -0.0023099622,
+    -0.029903214,
+    0.018061802,
+    0.0023244582,
+    -0.017053058,
+    -0.013659405,
+    0.0044463235,
+    0.06515784,
+    0.032969866,
+    0.0031688842,
+    0.015059475,
+    -0.11560261,
+    0.039765935,
+    -0.03776204,
+    -0.05031268,
+    0.0067037363,
+    0.06595242,
+    0.017389499,
+    0.020409983,
+    -0.040794276,
+    -0.037404627,
+    -0.06037178,
+    -0.008191531,
+    0.032271825,
+    0.0023341519,
+    0.025598591,
+    -0.005941098,
+    0.004279414,
+    -0.024683183,
+    -0.031794712,
+    -0.03359581,
+    0.037214927,
+    0.038203973,
+    -0.017133884,
+    -0.029654073,
+    0.022071552,
+    -0.030691357,
+    -0.06935805,
+    -0.04306717,
+    -0.015443039,
+    0.03479073,
+    -0.030158576,
+    -0.024360582,
+    -0.04644098,
+    0.00921392,
+    0.029460477,
+    0.0020652486,
+    -0.01590254,
+    -0.03988122,
+    -0.0078642275,
+    0.00844424,
+    -0.049269184,
+    0.0123877255,
+    0.0011286339,
+    0.03187866,
+    -0.038426843,
+    0.048316102,
+    0.034070443,
+    0.079673424,
+    0.04554155,
+    -0.0435278,
+    -0.024897175,
+    0.0028245584,
+    -0.008260932,
+    -0.025024636,
+    0.013788673,
+    -0.01145331,
+    0.0055475063,
+    0.0131743,
+    -0.0013669893,
+    -0.0034047745,
+    0.010911373,
+    0.01375827,
+    0.027583,
+    -0.021772536,
+    -0.013506879,
+    0.023273742,
+    -0.008652432,
+    0.0043206206,
+    -0.001770367,
+    -0.07183984,
+    -0.04207893,
+    -0.023387296,
+    -0.017715313,
+    -0.004735268,
+    0.0057832156,
+    0.045061115,
+    -0.015134181,
+    0.031451475,
+    -0.007258327,
+    0.027996756,
+    -0.0054125134,
+    0.009020207,
+    -0.029583402,
+    0.04245538,
+    0.010557539,
+    -0.009200618,
+    0.00038882034,
+    0.055968586,
+    0.006097926,
+    -0.023857806,
+    0.039143216,
+    -0.0007296504,
+    0.020920848,
+    0.0037815776,
+    -0.038378615,
+    -0.02119676,
+    0.008592599,
+    0.045184836,
+    0.030004185,
+    -0.021833202,
+    0.050473772,
+    -0.04585394,
+    -0.04300828,
+    -0.06842006,
+    -0.03132453,
+    0.0036119444,
+    -0.0039973645,
+    -0.015945546,
+    0.009550079,
+    0.050627902,
+    -0.010300367,
+    0.029572714,
+    0.010291932,
+    -0.039448686,
+    0.016036564,
+    -0.032189436,
+    -0.06379536,
+    0.009063231,
+    0.01633285,
+    -0.07484628,
+    -0.005347167,
+    0.011422845,
+    0.013825284,
+    0.038920205,
+    0.012396987,
+    0.025125626,
+    0.019441659,
+    0.029627861,
+    0.04759187,
+    0.013583907,
+    -0.009690503,
+    0.038465053,
+    0.027132157,
+    0.024818895,
+    0.029363805,
+    0.021802804,
+    -0.02859942,
+    -0.025819777,
+    0.037515547,
+    0.05882237,
+    0.04724553,
+    0.07840868,
+    0.03432976,
+    -0.008836088,
+    0.045133635,
+    0.0053056823,
+    0.052338656,
+    -0.01613468,
+    -0.025812976,
+    0.03461378,
+    -0.033942908,
+    -0.0005595395,
+    -0.0412405,
+    0.04470173,
+    0.022057774,
+    0.024816975,
+    0.03306867,
+    0.0013746007,
+    0.0022220314,
+    -0.016012378,
+    0.014147469,
+    -0.03963112,
+    0.009230327,
+    0.06369149,
+    -0.052106116,
+    0.012622534,
+    0.013396168,
+    -0.03390739,
+    0.0036370226,
+    0.014697787,
+    0.06919776,
+    -0.059907,
+    -0.041556995,
+    0.030287579,
+    0.05115172,
+    -0.018169709,
+    0.004341983,
+    0.0015305023,
+    0.09624526,
+    -0.030045917,
+    0.027586263,
+    -0.091021694,
+    0.022537962,
+    -0.008115688,
+    0.01983602,
+    0.0054241256,
+    0.03397741,
+    0.02881964,
+    -0.027498977,
+    -0.030100899,
+    0.008147615,
+    -0.022450488,
+    0.021336244,
+    -0.0034673084,
+    0.047465656,
+    0.06691334,
+    0.001263538,
+    0.0062148795,
+    -0.0018285222,
+    0.0103039965,
+    -0.0075675757,
+    0.030558791,
+    0.016011676,
+    0.033649556,
+    0.059835427,
+    -0.032261297,
+    0.009329471,
+    0.017374476,
+    -0.020713905,
+    0.04113082,
+    0.026101518,
+    0.031739432,
+    0.013563591,
+    -0.03889867,
+    -0.03674386,
+    -0.02082492,
+    0.005857783,
+    0.022900255,
+    -0.002263474,
+    -0.029029869,
+    0.0045905625,
+    0.04133363,
+    0.015188944,
+    -0.0078803385,
+    -0.019886509,
+    -0.012985918,
+    -0.031858437,
+    -0.008190241,
+    0.018686844,
+    -0.035049815,
+    -0.041225147,
+    -0.0067339214,
+    0.027518552,
+    0.0047391173,
+    0.026700871,
+    -0.01496472,
+    -0.0004897604,
+    0.015590675,
+    -0.027763585,
+    -0.06389957,
+    -0.016046619,
+    -0.024561454,
+    0.0200391,
+    0.0018477187,
+    -0.01294702,
+    -0.04774337,
+    0.028365238,
+    0.020802962,
+    0.0057774624,
+    0.046315685,
+    -0.011832259,
+    -0.03770096,
+    0.048991185,
+    0.015434521,
+    0.02361139,
+    0.0024045783,
+    -0.0056382176,
+    0.040004525,
+    -0.011230004,
+    0.025027037,
+    -0.022857167,
+    -0.0040397844,
+    0.011140027,
+    0.02366849,
+    0.031109422,
+    0.017669296,
+    -0.013481891,
+    -0.05762304,
+    -0.015585292,
+    0.044425815,
+    0.011215806,
+    -0.024036234,
+    -0.07036002,
+    -0.015037409,
+    -0.007203778,
+    0.01951682,
+    -0.016306683,
+    0.08123846,
+    0.034345686,
+    -0.03675896,
+    -0.02181971,
+    -0.030755827,
+    0.064266115,
+    0.07897809,
+    0.0676401,
+    -0.039515484,
+    -0.017579857,
+    0.024583748,
+    0.060370363,
+    0.015258948,
+    0.021718638,
+    0.0017054438,
+    0.04140272,
+    -0.05980082,
+    0.017091474,
+    -0.0040849126,
+    0.013331178,
+    0.039544456,
+    0.0033756394,
+    0.0038447808,
+    -0.048456356,
+    0.01284311,
+    0.032647617,
+    -0.011138111,
+    0.010161669,
+    -0.023426645,
+    -0.028499305,
+    0.07470353,
+    -0.014410963,
+    -0.02907829,
+    -0.029714515,
+    -0.0591141,
+    -0.04788102,
+    0.026248794,
+    -0.0061676432,
+    -0.00994607,
+    0.012693869,
+    0.021114362,
+    -0.032898556,
+    -0.02121102,
+    -0.014714876,
+    -0.007871136,
+    0.02518644,
+    0.025482148,
+    0.06346363,
+    -0.04842306,
+    0.040609922,
+    -0.036146693,
+    0.0043544993,
+    -0.006554438,
+    0.009132177,
+    0.05776423,
+    -0.0171018,
+    -0.027184261,
+    -0.0053919223,
+    0.023902763,
+    0.06469172,
+    0.053054124,
+    0.03526158,
+    0.06431445,
+    -0.012915285,
+    -0.016268848,
+    0.037481066,
+    -0.026486604,
+    0.06468681,
+    -0.032767512,
+    -0.050704364,
+    -0.04311393,
+    -0.008172534,
+    0.042741396,
+    0.09263601,
+    -0.022500744,
+    0.047608927,
+    -0.043086115,
+    -0.0016360428,
+    -0.055923782,
+    -0.025089175,
+    -0.0058147716,
+    -0.015605688,
+    -0.006236626,
+    -0.058213674,
+    -0.06654441,
+    -0.03553868,
+    -0.02783294,
+    0.020813918,
+    -0.059463248,
+    0.049553134,
+    0.015215801,
+    0.0041614207,
+    -0.029896095,
+    -0.051595207,
+    0.0189386,
+    0.014027056,
+    -0.027868325,
+    -0.082667336,
+    0.001450394,
+    0.055049233,
+    -0.014433304,
+    -0.009996532,
+    -0.006126875,
+    0.016157236,
+    -0.039572082,
+    0.03337855,
+    -0.035635035,
+    0.039175283,
+    0.012332507,
+    0.0053799446,
+    -0.0581029,
+    0.071092576,
+    -0.051072188,
+    0.021988157,
+    -0.025925683,
+    0.034802623,
+    -0.003566765,
+    0.0020742598,
+    0.006897104,
+    -0.013441841,
+    0.011137218,
+    -0.011841354,
+    -0.027215924,
+    0.03572048,
+    0.00277151,
+    0.013002529,
+    -0.030364482,
+    -0.006429773,
+    -0.02623071,
+    -0.0048055192,
+    0.02026658,
+    0.010346254,
+    -0.06533829,
+    -0.019028662,
+    -0.027459117,
+    -0.016124824,
+    -0.0023291896,
+    -0.020431198,
+    -0.015360054,
+    -0.042588837,
+    -0.057048094,
+    0.008307815,
+    -0.0014415863,
+    0.01546816,
+    0.03630151,
+    -0.035200845,
+    0.023891943,
+    -0.0034119661,
+    -0.04666313,
+    -0.040016294,
+    -0.0028303382,
+    0.013689277,
+    0.016527014,
+    0.009295658,
+    -0.022543501,
+    -0.024927815,
+    0.05325443,
+    0.00501606,
+    0.00540542,
+    -0.052334774,
+    -0.071214214,
+    0.004023597,
+    0.03364219,
+    0.050249457,
+    -0.047776297,
+    -0.023876114,
+    0.04447204,
+    -0.0051783617,
+    0.039064508,
+    -0.006009708,
+    0.063632004,
+    0.026571311,
+    -0.017900137,
+    -0.025810417,
+    0.015756277,
+    0.05391589,
+    -0.010327761,
+    0.020247573,
+    0.0016637428,
+    0.008137871,
+    -0.040761184,
+    -0.026283579,
+    -0.035034966,
+    0.016876733,
+    -0.030265475,
+    0.010920215,
+    -0.01276316,
+    -0.047384825,
+    -0.019201657,
+    0.03499734,
+    0.034919713,
+    -0.05902815,
+    0.015245327,
+    -0.08913372,
+    -0.06744505,
+    -0.060449827,
+    0.0674062,
+    -0.034074318,
+    0.01009017,
+    0.05136209,
+    0.04773375,
+    0.042199228,
+    0.000875854,
+    0.020937381,
+    0.0035645843,
+    0.055295486,
+    -0.068895616,
+    0.0570082,
+    0.0050842264,
+    0.008202663,
+    0.0021183675,
+    0.08103356,
+    0.05598302,
+    -0.019360948,
+    0.052579515,
+    0.012212183,
+    -0.049369283,
+    0.052566245,
+    -0.03294586,
+    -0.05076734,
+    -0.020479586,
+    -0.023691233,
+    0.033576097,
+    -0.009634936,
+    -0.012224909,
+    0.018032959,
+    0.01798534,
+    0.032978565,
+    0.043277223,
+    -0.06445118,
+    -0.08226714,
+    0.033933267,
+    -0.00627801,
+    -0.008976904,
+    -0.023847207,
+    -0.004110865,
+    0.023947652,
+    0.019264346,
+    0.027505532,
+    -0.009433535,
+    -0.012644838,
+    0.022255223,
+    0.002755456,
+    0.0022263774,
+    -0.04734209,
+    0.016777294,
+    -0.058918722,
+    0.005886202,
+    -0.024254994,
+    -0.011809497,
+    -0.00041425825,
+    -0.024272775,
+    -0.061267264,
+    0.03270397,
+    -0.024298673,
+    0.0195476,
+    0.029716272,
+    -0.0030144802,
+    -0.021256331,
+    -0.061214883,
+    0.027809558,
+    0.026894683,
+    0.033201434,
+    -0.017360246,
+    0.001070299,
+    -0.019208208,
+    -0.027442927,
+    -0.010834455,
+    0.008045989,
+    -0.0429444,
+    -0.03485163,
+    0.026994416,
+    0.0052332035,
+    -0.010943523,
+    0.027089523,
+    -0.00050961896,
+    0.021852478,
+    -0.01779694,
+    -0.11249158,
+    -0.01328047,
+    0.040974457,
+    0.012133836,
+    0.016197657,
+    -0.042517,
+    -0.056879446,
+    -0.0023433326,
+    -0.031540163,
+    0.010411799,
+    -0.037435535,
+    0.0189931,
+    0.0021705478,
+    -0.027319372,
+    0.0033566854,
+    -0.07739892,
+    0.082444236,
+    -0.02310735,
+    0.055879455,
+    -0.053603873,
+    -0.02094068,
+    -0.04532542,
+    -0.02190954,
+    -0.093993805,
+    0.00031331382,
+    0.032947097,
+    0.024363635,
+    -0.045024563,
+    -0.0072543025,
+    -0.010228399,
+    -0.009983977,
+    0.05387876,
+    -0.0040418576,
+    0.011590629,
+    -0.031151628,
+    -0.04747952,
+    0.009902643,
+    0.032817487,
+    0.004568888,
+    -0.012036464,
+    0.03807371,
+    0.090215705,
+    0.033020504,
+    0.014540762,
+    -0.0018006415,
+    0.014326713,
+    -0.046985976,
+    0.020846698,
+    -0.028834099,
+    -0.05358062,
+    -0.035709612
+  ],
+  "_embedding_hash": "f7fed521eda9c96ee48e1c8e264c4a7e"
 }

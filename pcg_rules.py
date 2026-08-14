@@ -81,16 +81,22 @@ def _resolve_account_references(org_id=None):
 
     table = {}
     for brick in _read_json_bricks(STRUCTORY_MODULE_DIR):
-        table.update(brick.get('contenu', {}).get('comptes', {}))
+        c = brick.get('contenu', {})
+        if isinstance(c, dict):
+            table.update(c.get('comptes', {}))
 
     module = _org_module(org_id)
     if module:
         for brick in _read_json_bricks(os.path.join(MODULES_DIR, module, 'bricks')):
-            table.update(brick.get('contenu', {}).get('comptes', {}))
+            c = brick.get('contenu', {})
+            if isinstance(c, dict):
+                table.update(c.get('comptes', {}))
 
     if org_id:
         for brick in _read_json_bricks(os.path.join(ORGS_DIR, org_id, 'bricks')):
-            table.update(brick.get('contenu', {}).get('comptes', {}))
+            c = brick.get('contenu', {})
+            if isinstance(c, dict):
+                table.update(c.get('comptes', {}))
 
     _account_ref_cache[cache_key] = {'table': table, 't': time.time()}
     return table
@@ -132,10 +138,10 @@ def classify(libelle, sens, org_id=None):
     return {"compte": compte, "nom": nom, "confidence": confidence}
 
 
-def build_ledger_entry(date, libelle, montant, sens, compte_info):
+def build_ledger_entry(date, libelle, montant, sens, compte_info, contrepartie=None):
     """Construit une écriture ledger-cli en partie double, syntaxiquement valide."""
     montant = round(abs(float(montant)), 2)
-    compte_contrepartie, nom_contrepartie = DEFAULT_COUNTERPART
+    compte_contrepartie, nom_contrepartie = contrepartie or DEFAULT_COUNTERPART
 
     compte_ligne = f"{compte_info['compte']}:{compte_info['nom']}"
     contrepartie_ligne = f"{compte_contrepartie}:{nom_contrepartie}"
