@@ -16,6 +16,12 @@ app = Flask(__name__)
 ANALYZOR_URL = os.environ.get('ANALYZOR_URL', 'http://localhost:8000')
 SUBSCRIPTIONS_URL = os.environ.get('SUBSCRIPTIONS_URL', 'http://localhost:8082')
 SERVICE_API_KEY = os.environ.get('SERVICE_API_KEY', '')
+# Rotation de cle sans coupure : SERVICE_API_KEYS (liste separee par des virgules) est
+# acceptee EN PLUS de SERVICE_API_KEY. Si SERVICE_API_KEYS est absent, le comportement
+# est strictement identique a avant (seule SERVICE_API_KEY est acceptee).
+_ACCEPTED_SERVICE_KEYS = frozenset({SERVICE_API_KEY} | {
+    k.strip() for k in os.environ.get('SERVICE_API_KEYS', '').split(',') if k.strip()
+})
 
 
 def _resolve_role(org_id, email):
@@ -39,7 +45,7 @@ def _authorize_write(org_id, data):
     - l'appelant doit presenter la service-key (seuls les backends de confiance l'ont) ;
     - l'email SSO doit etre membre editor/owner (viewer = lecture seule).
     Retourne (email, None) si OK, sinon (None, (reponse_erreur, status))."""
-    if request.headers.get('X-Service-Key') != SERVICE_API_KEY:
+    if request.headers.get('X-Service-Key') not in _ACCEPTED_SERVICE_KEYS:
         return None, (jsonify({'success': False, 'error': 'appelant non autorise (service-key)'}), 401)
     email = (data.get('userEmail') or '').strip().lower()
     if not email:
@@ -1336,7 +1342,7 @@ def classify_route():
 @app.route("/api/ledger/journal.json", methods=["GET"])
 def journal_json():
     # Journal au format game (riviere) : [{d, l, p:[[compte, montant]]}]. Protege par service-key.
-    if request.headers.get("X-Service-Key") != SERVICE_API_KEY:
+    if request.headers.get("X-Service-Key") not in _ACCEPTED_SERVICE_KEYS:
         return jsonify({"error": "unauthorized"}), 401
     org_id = request.args.get("orgId", "")
     try:

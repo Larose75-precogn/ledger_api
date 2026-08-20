@@ -6,3 +6,10 @@ __pycache__/
 # Données réelles d'organisations (financières, noms de personnes) — jamais publiques.
 orgs/
 journal.ledger
+
+# Sauvegardes locales et secrets — jamais versionnes.
+*.bak
+*.bak-*
+.env
+*.env
+app.py.bak*
