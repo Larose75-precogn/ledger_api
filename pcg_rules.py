@@ -138,7 +138,7 @@ def classify(libelle, sens, org_id=None):
     return {"compte": compte, "nom": nom, "confidence": confidence}
 
 
-def build_ledger_entry(date, libelle, montant, sens, compte_info, contrepartie=None):
+def build_ledger_entry(date, libelle, montant, sens, compte_info, contrepartie=None, structory_user=None):
     """Construit une écriture ledger-cli en partie double, syntaxiquement valide."""
     montant = round(abs(float(montant)), 2)
     compte_contrepartie, nom_contrepartie = contrepartie or DEFAULT_COUNTERPART
@@ -147,6 +147,8 @@ def build_ledger_entry(date, libelle, montant, sens, compte_info, contrepartie=N
     contrepartie_ligne = f"{compte_contrepartie}:{nom_contrepartie}"
 
     lines = [f"{date} * {libelle}"]
+    if structory_user:
+        lines.append(f"    # structory_user: {structory_user}")
 
     if sens == "recette":
         lines.append(f"    {contrepartie_ligne}    {montant:.2f} EUR")

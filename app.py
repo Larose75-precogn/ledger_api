@@ -14,6 +14,42 @@ from pcg_rules import classify, build_ledger_entry
 app = Flask(__name__)
 
 ANALYZOR_URL = os.environ.get('ANALYZOR_URL', 'http://localhost:8000')
+SUBSCRIPTIONS_URL = os.environ.get('SUBSCRIPTIONS_URL', 'http://localhost:8082')
+SERVICE_API_KEY = os.environ.get('SERVICE_API_KEY', '')
+
+
+def _resolve_role(org_id, email):
+    """Role de l'utilisateur (email SSO) sur l'org, via subscriptions_api. None si non-membre/erreur."""
+    if not email:
+        return None, None
+    try:
+        r = requests.get(f'{SUBSCRIPTIONS_URL}/api/auth/membership',
+                         params={'orgId': org_id, 'email': email},
+                         headers={'X-Service-Key': SERVICE_API_KEY}, timeout=5)
+        d = r.json()
+        if d.get('isMember'):
+            return d.get('role'), d.get('uid')
+        return None, None
+    except Exception:
+        return None, None
+
+
+def _authorize_write(org_id, data):
+    """Controle d'acces backend pour toute ecriture. Non contournable :
+    - l'appelant doit presenter la service-key (seuls les backends de confiance l'ont) ;
+    - l'email SSO doit etre membre editor/owner (viewer = lecture seule).
+    Retourne (email, None) si OK, sinon (None, (reponse_erreur, status))."""
+    if request.headers.get('X-Service-Key') != SERVICE_API_KEY:
+        return None, (jsonify({'success': False, 'error': 'appelant non autorise (service-key)'}), 401)
+    email = (data.get('userEmail') or '').strip().lower()
+    if not email:
+        return None, (jsonify({'success': False, 'error': 'userEmail manquant'}), 400)
+    role, uid = _resolve_role(org_id, email)
+    if role is None:
+        return None, (jsonify({'success': False, 'errorCode': 'not_member', 'error': 'non membre de cette organisation'}), 403)
+    if role not in ('editor', 'owner'):
+        return None, (jsonify({'success': False, 'errorCode': 'read_only', 'error': 'droit insuffisant : viewer (lecture seule)', 'role': role}), 403)
+    return uid, None
 
 
 def log_to_journal(org_id, actor, summary, details=None):
@@ -182,6 +218,9 @@ def add_entry():
         data = request.get_json() or {}
 
         org_id = data.get('orgId', '')
+        _actor, _err = _authorize_write(org_id, data)
+        if _err:
+            return _err
         libelle = (data.get('libelle') or '').strip()
         montant = data.get('montant')
         sens = data.get('sens') or 'depense'
@@ -209,7 +248,7 @@ def add_entry():
         sens_rule = 'debit' if sens == 'depense' else 'credit'
         contrepartie_rules = _load_contrepartie_rules(org_id)
         contrepartie = _get_contrepartie(compte_info['compte'], sens_rule, org_id) if contrepartie_rules else None
-        entry_text = build_ledger_entry(date, libelle, montant, sens, compte_info, contrepartie=contrepartie)
+        entry_text = build_ledger_entry(date, libelle, montant, sens, compte_info, contrepartie=contrepartie, structory_user=_actor)
 
         with open(path, 'a') as f:
             f.write('\n' + entry_text + '\n')
@@ -265,6 +304,9 @@ def import_entries():
         data = request.get_json() or {}
 
         org_id = data.get('orgId', '')
+        _actor, _err = _authorize_write(org_id, data)
+        if _err:
+            return _err
         entries = data.get('entries')
         source = data.get('source') or ''
         mode = data.get('mode') or 'append'
@@ -302,7 +344,7 @@ def import_entries():
             if abs(total) > 0.01:
                 return jsonify({'success': False, 'error': f'entries[{i}] : jambes non équilibrées (somme={total:.2f})'}), 400
 
-            blocks.append(f"{date} * {libelle}\n" + "\n".join(leg_lines))
+            blocks.append(f"{date} * {libelle}\n    # structory_user: {_actor}\n" + "\n".join(leg_lines))
 
         try:
             path = org_journal_path(org_id, create=True)
@@ -867,6 +909,53 @@ def time_points():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _numero_pcg_compte(org_id, compte):
+    """Numero PCG (classe 512...) dun compte patrimoine, depuis le registre de
+    lorg (orgs/<org_id>/bricks/*.json, contenu.comptes_patrimoine). Regle voulue
+    par Stephane: deja present -> on reutilise ; absent -> on alloue le prochain
+    numero libre (5129xx) et on lajoute au registre. Retourne le numero (str) ou
+    None si lorg na pas de registre."""
+    if not org_id or not compte:
+        return None
+    # Scope : famille SMC uniquement (module suivre_mes_comptes) — jamais la mère Structory
+    # ni les sœurs (compta_copro, structory_compta/jdb). Numérotation patrimoine légère
+    # (512 banque / 471 attente) réservée à SMC et ses filles (2026-08-15, consigne Stéphane).
+    _mp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "orgs", org_id, "module.json")
+    try:
+        with open(_mp, encoding="utf-8") as _mf:
+            if json.load(_mf).get("module") != "suivre_mes_comptes":
+                return None
+    except (OSError, ValueError):
+        return None
+    bricks_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "orgs", org_id, "bricks")
+    if not os.path.isdir(bricks_dir):
+        return None
+    target_path = None; data = None; table = {}
+    for name in sorted(os.listdir(bricks_dir)):
+        if not name.endswith(".json"):
+            continue
+        fp = os.path.join(bricks_dir, name)
+        try:
+            d = json.load(open(fp, encoding="utf-8"))
+        except Exception:
+            continue
+        c = d.get("contenu", {})
+        if isinstance(c, dict) and "comptes_patrimoine" in c:
+            target_path = fp; data = d; table = c["comptes_patrimoine"]; break
+    if target_path is None:
+        return None
+    if compte in table:
+        return table[compte]
+    import numerotation_pcg as _npcg
+    table = _npcg.numeroter([compte], registre=table)  # alloue par nature (512/503/274/275/471)
+    data["contenu"]["comptes_patrimoine"] = table
+    tmp = target_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, target_path)
+    return table[compte]
+
+
 @app.route('/api/ledger/balance-point', methods=['POST'])
 def balance_point():
     """Constate le solde d'un compte patrimoine à une date donnée (Suivre Mes Comptes,
@@ -935,9 +1024,13 @@ def balance_point():
             with open(path) as f_in, open(backup_path, 'w') as f_out:
                 f_out.write(f_in.read())
 
+        _num_pcg = _numero_pcg_compte(org_id, compte)
+        _suffixe_num = f"  ; N°{_num_pcg}" if _num_pcg else ""
+        _num_cp = _numero_pcg_compte(org_id, 'Attente:ajustement-solde')
+        _suffixe_cp = f"  ; N°{_num_cp}" if _num_cp else ""
         leg_lines = [
-            f"    {compte:<45}{ecart:>10.2f} {devise}",
-            f"    {'Attente:ajustement-solde':<45}{-ecart:>10.2f} {devise}",
+            f"    {compte:<45}{ecart:>10.2f} {devise}{_suffixe_num}",
+            f"    {'Attente:ajustement-solde':<45}{-ecart:>10.2f} {devise}{_suffixe_cp}",
         ]
         block = f"{date} * Solde constaté ({solde:.2f} {devise})\n" + "\n".join(leg_lines)
 
@@ -1219,6 +1312,59 @@ def health():
         'status': 'healthy',
         'timestamp': datetime.now().isoformat()
     })
+
+
+
+@app.route("/api/ledger/classify", methods=["GET"])
+def classify_route():
+    """Classification PCG d un libelle (lecture seule, sans ecriture) — expose la fonction
+    classify() pour reutilisation par d autres services (ex. jdb_api : suggestion de
+    contrepartie sur une proposition avant validation). Params: libelle, sens (recette|
+    depense), orgId?."""
+    libelle = request.args.get("libelle", "")
+    sens = request.args.get("sens", "depense")
+    org_id = request.args.get("orgId") or None
+    try:
+        res = classify(libelle, sens, org_id)
+        return jsonify({"success": True, **res})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+
+
+@app.route("/api/ledger/journal.json", methods=["GET"])
+def journal_json():
+    # Journal au format game (riviere) : [{d, l, p:[[compte, montant]]}]. Protege par service-key.
+    if request.headers.get("X-Service-Key") != SERVICE_API_KEY:
+        return jsonify({"error": "unauthorized"}), 401
+    org_id = request.args.get("orgId", "")
+    try:
+        path = org_journal_path(org_id, create=False)
+    except Exception:
+        return jsonify([]), 404
+    if not os.path.exists(path):
+        return jsonify([]), 404
+    import csv as _csv, io as _io
+    out = subprocess.run(["ledger", "-f", path, "csv"], capture_output=True, text=True, timeout=15).stdout
+    rows = []
+    for row in _csv.reader(_io.StringIO(out)):
+        if len(row) < 6 or row[3] in ("998", "999"):
+            continue
+        try:
+            amt = float(row[5])
+        except ValueError:
+            continue
+        rows.append((row[0].replace("-", "/"), row[2], row[3], amt))
+    rows.sort(key=lambda x: x[0])
+    ecr = []
+    prev = None
+    for d, lib, cpt, amt in rows:
+        if lib != prev:
+            ecr.append({"d": d, "l": lib, "p": []})
+            prev = lib
+        ecr[-1]["p"].append([cpt, amt])
+    return jsonify(ecr)
 
 
 if __name__ == '__main__':
