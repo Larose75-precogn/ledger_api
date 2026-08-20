@@ -1,0 +1,86 @@
+{
+  "type": "Rule",
+  "nom": "Copropriétaire Exemple",
+  "description": "Répartition des appels de fonds par copropriétaire selon les tantièmes votés en AG. Montant total 2026 : 2 000 EUR/trimestre.",
+  "budget_annuel_eur": 8000,
+  "montant_trimestriel_eur": 2000,
+  "compte_provision": "701:Prov charges",
+  "mandataire": {
+    "note": "Destinataire des appels de fonds (pas les copropriétaires directement). Certains copropriétaires n'ont pas de mandataire (gestion directe)."
+  },
+  "copropriétaires": [
+    {
+      "compte": "451001",
+      "label": "AMSELLEM RACHEL (GRIMMER)",
+      "montant_trim": 466.0,
+      "email": "exemple@exemple.fr",
+      "mandataire": {
+        "nom": "Copropriétaire Exemple",
+        "adresse": "246 rue du fbg saint antoine 75012 Paris",
+        "email": "exemple@exemple.fr"
+      }
+    },
+    {
+      "compte": "451002",
+      "label": "AOUCHICHE MOURAD",
+      "montant_trim": 264.0,
+      "email": "exemple@exemple.fr",
+      "mandataire": null
+    },
+    {
+      "compte": "451003",
+      "label": "BEN RHOUMA HAMADI",
+      "montant_trim": 528.0,
+      "email": "exemple@exemple.fr",
+      "mandataire": {
+        "nom": "Copropriétaire Exemple",
+        "email": "exemple@exemple.fr"
+      }
+    },
+    {
+      "compte": "451004",
+      "label": "CHOLET MICHELE",
+      "montant_trim": 216.0,
+      "email": "exemple@exemple.fr",
+      "mandataire": {
+        "nom": "Copropriétaire Exemple",
+        "adresse": "27 rue de Provence 75009 Paris",
+        "email": "exemple@exemple.fr"
+      }
+    },
+    {
+      "compte": "451006",
+      "label": "PLAISSY STEPHANE ET EMMANUELLE",
+      "montant_trim": 526.0,
+      "email": "exemple@exemple.fr",
+      "mandataire": null
+    }
+  ],
+  "iban_copropriete": "FR7600000000000000000000000",
+  "schedule_2026": [
+    {
+      "trimestre": "Q1",
+      "libelle": "appel 1T26",
+      "date": "2026/01/01",
+      "statut": "comptabilisé"
+    },
+    {
+      "trimestre": "Q2",
+      "libelle": "appel 2T26",
+      "date": "2026/04/01",
+      "statut": "comptabilisé"
+    },
+    {
+      "trimestre": "Q3",
+      "libelle": "appel 3T26",
+      "date": "2026/07/01",
+      "statut": "comptabilisé"
+    },
+    {
+      "trimestre": "Q4",
+      "libelle": "appel 4eme trim 2026",
+      "date": "2026/09/30",
+      "statut": "à émettre"
+    }
+  ]
+}

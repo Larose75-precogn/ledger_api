@@ -13,3 +13,6 @@ journal.ledger
 .env
 *.env
 app.py.bak*
+
+# donnees reelles copropriete — org-level, jamais public
+modules/compta_copro/bricks/rule_0009_appel_fonds.json
